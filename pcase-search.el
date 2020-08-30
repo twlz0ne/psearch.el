@@ -69,10 +69,10 @@ If ‘pcase-search-pp-print-p’ is not nil, return pretty-printted string."
     (when pcase-search-pp-print-p
       (emacs-lisp-mode)
       (pp-buffer))
-    (buffer-string)))
+    (string-trim-right (buffer-string))))
 
 (defsubst pcase-search--apply-replacement-at-point (matcher)
-  "Apply replacement at point if MATCHER returned no-nil."
+  "Apply replacement at point if MATCHER returned non-nil."
   (when-let* ((sexp (let ((bounds (bounds-of-thing-at-point 'sexp)))
                       (save-restriction
                         (narrow-to-region (point) (cdr bounds))
@@ -145,6 +145,54 @@ it will find the nearest sexp rather than jumping to the next, for example:
   (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)
                           result-callback))
 
+;;; minibuffer history
+
+(defvar pcase-search-replace-separator " → ")
+
+(defvar pcase-search-replace-history nil)
+
+(defvar pcase-search-replace-history-variable 'pcase-search-replace-history)
+
+(defvar pcase-search-replace-defaults nil)
+
+(defun pcase-search-replace-args ()
+  (let* ((minibuffer-history
+          (append
+           (mapcar (pcase-lambda (`(,from . ,to))
+                     (concat from pcase-search-replace-separator to))
+                   pcase-search-replace-defaults)
+           (symbol-value pcase-search-replace-history-variable)))
+         (default (car pcase-search-replace-defaults))
+         (from (read-from-minibuffer
+                (format "Query replace %s: "
+                        (if default
+                            (list "default"
+                                  (concat (car default)
+                                          pcase-search-replace-separator
+                                          (cdr default)))
+                          (list "e.g." (concat "`(foo . ,rest"
+                                               pcase-search-replace-separator
+                                               "`(bar ,@rest)"))))
+                nil nil nil nil
+                (car search-ring) t))
+         (default (if (string-empty-p from)
+                      default
+                    (let ((arr (split-string from pcase-search-replace-separator)))
+                      (cons (car arr) (cadr arr)))))
+         (to (or (cdr default)
+                 (read-from-minibuffer
+                  (format "Query replace %s with: " (car default))
+                  nil nil nil nil
+                  pcase-search-replace-history-variable t))))
+    (let ((from (car default)))
+      (add-to-history pcase-search-replace-history-variable to)
+      (add-to-history pcase-search-replace-history-variable from)
+      (unless (or (string-empty-p from) (string-empty-p to))
+        (unless (assoc from pcase-search-replace-defaults)
+          (add-to-list 'pcase-search-replace-defaults (cons from to)))
+        (list from to)))))
+
+;;;###autoload
 (defun pcase-search-replace (match-pattern replace-pattern)
   "Replace some matches of pattern MATCH-PATTERN with pattern REPLACE-PATTERN.
 
@@ -159,6 +207,7 @@ Example:
                           '`(bar ,@rest))
     ;; (foo a b ...) -> (bar a b ...)
     ```"
+  (interactive (pcase-search-replace-args))
   (let ((matcher (pcase-search-make-matcher match-pattern replace-pattern))
         new-pos)
     (when-let
@@ -178,7 +227,9 @@ Example:
       (when new-pos
         (goto-char new-pos))
       (thing-at-point--end-of-sexp)
-      (point))))
+      (if (called-interactively-p 'any)
+          (message "Replaced %s occurrences" (length occurrences))
+        (point)))))
 
 (provide 'pcase-search)
 
