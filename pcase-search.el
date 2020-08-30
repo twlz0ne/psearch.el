@@ -36,15 +36,15 @@
 (require 'pcase)
 
 (defcustom pcase-search-pp-print-p t
-  "Whether the query replacement is pretty-printed."
+  "Control whether the results of ‘pcase-search--print-to-string’ are pretty-printed."
   :group 'pcase-search
   :type 'boolean)
 
-(defun pcase-search-make-matcher (match-pattern &optional output-pattern)
+(defun pcase-search-make-matcher (match-pattern &optional result-pattern)
   "Create a function to match the input sexp.
 
 MATCH-PATTERN   to match the input sexp
-OUTPUT-PATTERN  to generate the output (default t)
+RESULT-PATTERN  to generate the result (default t)
 
 Example:
 
@@ -59,23 +59,17 @@ Example:
     ```"
   `(lambda (sexp)
      (pcase sexp
-       (,match-pattern ,(or output-pattern t)))))
+       (,match-pattern ,(or result-pattern t)))))
 
-(defsubst pcase-search--pp-to-string (expr)
-  "Return a pretty-printed string of EXPR."
+(defsubst pcase-search--print-to-string (expr)
+  "Return a string containing the printed representation of EXPR.
+If ‘pcase-search-pp-print-p’ is not nil, return pretty-printted string."
   (with-temp-buffer
-    (emacs-lisp-mode)
-    (let ((print-length nil)
-          (print-level nil)
-          (print-circle nil))
-      (insert (pp-to-string expr)))
-    (goto-char (point-min))
-    (while (pcase-search--beginning-of-next-sexp)
-      (when (looking-at "(\\\\\\(,@?\\)\\(?:[\n\s]*\\)?")
-        (let ((bounds (bounds-of-thing-at-point 'sexp)))
-          (delete-region (1- (cdr bounds)) (cdr bounds))
-          (replace-match (match-string 1) nil nil nil 0))))
-    (string-trim-right (buffer-string))))
+    (cl-prin1 expr (current-buffer))
+    (when pcase-search-pp-print-p
+      (emacs-lisp-mode)
+      (pp-buffer))
+    (buffer-string)))
 
 (defsubst pcase-search--apply-replacement-at-point (matcher)
   "Apply replacement at point if MATCHER returned no-nil."
@@ -86,10 +80,7 @@ Example:
               (rep (funcall matcher sexp)))
     (mark-sexp)
     (delete-region (region-beginning) (region-end))
-    (insert (funcall
-             (if pcase-search-pp-print-p
-                 #'pcase-search--pp-to-string #'cl-prin1-to-string)
-             rep))))
+    (insert (pcase-search--print-to-string rep))))
 
 (defun pcase-search--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
@@ -123,7 +114,7 @@ it will find the nearest sexp rather than jumping to the next, for example:
 (defun pcase-search-point-at-list-p ()
   (looking-at-p "[[`',@(\\[]"))
 
-(defun pcase-search-forward-1 (matcher)
+(defun pcase-search-forward-1 (matcher &optional result-callback)
   (let (pos)
     (when (save-excursion
             (catch 'break
@@ -133,17 +124,20 @@ it will find the nearest sexp rather than jumping to the next, for example:
                          (save-restriction
                            (narrow-to-region (point) (cdr bounds))
                            (sexp-at-point)))))
-                  (when (funcall matcher sexp)
+                  (when-let ((result (funcall matcher sexp)))
+                    (when result-callback
+                      (funcall result-callback result))
                     (throw 'break t))))))
       (goto-char pos))))
 
-(defun pcase-search-forward (pattern)
-  (pcase-search-forward-1 (pcase-search-make-matcher pattern)))
+(defun pcase-search-forward (pattern &optional result-pattern result-callback)
+  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)
+                          result-callback))
 
 (defun pcase-search-replace (match-pattern replace-pattern)
   "Replace some matches of pattern MATCH-PATTERN with pattern REPLACE-PATTERN.
 
-MATCH-PATTERN is an pcase pattern to match. REPLACE-PATTERN is an Elisp
+MATCH-PATTERN is a pcase pattern to match. REPLACE-PATTERN is an Elisp
 expression that is evaluated repeatedly for each match with bindings created
 in MATCH-PATTERN.
 
