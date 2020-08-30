@@ -78,7 +78,8 @@
 (unless nil
   (foo a b (c 1 2))
   `(foo a b ,(c 1 2)))"
-   (pcase-search-replace '`(foo . ,rest) '`(bar ,@rest))
+   (let ((pcase-search-pp-print-p nil))
+     (pcase-search-replace '`(foo . ,rest) '`(bar ,@rest)))
    (should
     (string= (buffer-substring-no-properties (point-min) (point-max))
              "\

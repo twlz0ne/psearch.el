@@ -35,6 +35,11 @@
 (require 'subr-x)
 (require 'pcase)
 
+(defcustom pcase-search-pp-print-p t
+  "Whether the query replacement is pretty-printed."
+  :group 'pcase-search
+  :type 'boolean)
+
 (defun pcase-search-make-matcher (match-pattern &optional output-pattern)
   "Create a function to match the input sexp.
 
@@ -56,6 +61,22 @@ Example:
      (pcase sexp
        (,match-pattern ,(or output-pattern t)))))
 
+(defsubst pcase-search--pp-to-string (expr)
+  "Return a pretty-printed string of EXPR."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let ((print-length nil)
+          (print-level nil)
+          (print-circle nil))
+      (insert (pp-to-string expr)))
+    (goto-char (point-min))
+    (while (pcase-search--beginning-of-next-sexp)
+      (when (looking-at "(\\\\\\(,@?\\)\\(?:[\n\s]*\\)?")
+        (let ((bounds (bounds-of-thing-at-point 'sexp)))
+          (delete-region (1- (cdr bounds)) (cdr bounds))
+          (replace-match (match-string 1) nil nil nil 0))))
+    (string-trim-right (buffer-string))))
+
 (defsubst pcase-search--apply-replacement-at-point (matcher)
   "Apply replacement at point if MATCHER returned no-nil."
   (when-let* ((sexp (let ((bounds (bounds-of-thing-at-point 'sexp)))
@@ -65,7 +86,10 @@ Example:
               (rep (funcall matcher sexp)))
     (mark-sexp)
     (delete-region (region-beginning) (region-end))
-    (insert (format "%S" rep))))
+    (insert (funcall
+             (if pcase-search-pp-print-p
+                 #'pcase-search--pp-to-string #'cl-prin1-to-string)
+             rep))))
 
 (defun pcase-search--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
