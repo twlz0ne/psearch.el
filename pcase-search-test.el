@@ -82,6 +82,21 @@
    (pcase-search--beginning-of-next-sexp 4)
    (should (equal (sexp-at-point) 'foo))))
 
+(ert-deftest pcase-search-test-backward ()
+  (pcase-search-test-with-buffer
+   "\
+(foo)
+(foo a)
+(foo a b)
+(unless nil
+  `(foo a b ,(c 1 2)))"
+   (goto-char (point-max))
+   (let ((pattern '`(foo a b . ,_)))
+     (pcase-search-backward pattern)
+     (should (equal (sexp-at-point) '`(foo a b ,(c 1 2))))
+     (pcase-search-backward pattern)
+     (should (equal (sexp-at-point) '(foo a b))))))
+
 (ert-deftest pcase-search-test-forward ()
   (pcase-search-test-with-buffer
    "\

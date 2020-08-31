@@ -180,6 +180,23 @@ it will find the nearest sexp rather than jumping to the next, for example:
 (defun pcase-search-point-at-list-p ()
   (looking-at-p "[`',@(\\[]"))
 
+(defun pcase-search-backward-1 (matcher &optional result-callback)
+  "Move backward across one sexp."
+  (let (pos)
+    (when (save-excursion
+            (catch 'break
+              (while (setq pos (pcase-search--beginning-of-prev-sexp))
+                (when (pcase-search--apply-replacement-at-point
+                       matcher
+                       result-callback)
+                  (throw 'break t)))))
+      (when pos
+        (goto-char pos))
+      (point))))
+
+(defun pcase-search-backward (pattern &optional result-pattern result-callback)
+  (pcase-search-backward-1 (pcase-search-make-matcher pattern result-pattern)))
+
 (defun pcase-search-forward-1 (matcher &optional result-callback)
   (let (pos)
     (when (or
