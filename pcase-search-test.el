@@ -68,7 +68,7 @@
    (goto-char (point-max))
    (pcase-search--beginning-of-prev-sexp)
    (should (equal (sexp-at-point) nil))
-   (dotimes (_ 4) (pcase-search--beginning-of-prev-sexp))
+   (pcase-search--beginning-of-prev-sexp 4)
    (should (equal (sexp-at-point) 2))))
 
 (ert-deftest pcase-search-test-beginning-of-next-sexp ()
@@ -79,7 +79,7 @@
    (goto-char (point-min))
    (pcase-search--beginning-of-next-sexp)
    (should (equal (sexp-at-point) '(())))
-   (dotimes (_ 4) (pcase-search--beginning-of-next-sexp))
+   (pcase-search--beginning-of-next-sexp 4)
    (should (equal (sexp-at-point) 'foo))))
 
 (ert-deftest pcase-search-test-forward ()

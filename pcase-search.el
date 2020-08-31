@@ -98,6 +98,30 @@ CALLBACK can be nil, t or a callback:
             t))
       t)))
 
+(defun pcase-search--beginning-of-prev-sexp-1 ()
+  "Jump to the beginning of prev sexp."
+  (let ((old-point (point))
+        new-point)
+    (if (catch 'break
+          (while (let ((ret (looking-back "[])]" 1)))
+                   (unless ret (throw 'break new-point))
+                   ret)
+            (down-list -1)
+            (setq new-point (point))))
+        (condition-case _err
+            (backward-sexp)
+          (scan-error))
+      (condition-case err 
+          (progn
+            (backward-sexp)
+            (when (pcase-search-point-at-list-p)
+              (forward-sexp)
+              (down-list -1)
+              (pcase-search--beginning-of-prev-sexp-1)))
+        (scan-error
+         (backward-char))))
+    (point)))
+
 (defun pcase-search--beginning-of-prev-sexp (&optional arg)
   "Jump to the beginning of prev ARG sexp and return the new point.
 
@@ -109,29 +133,29 @@ Unlike normal backward behaviour, it will try to find every sub element, for exa
      (|sexp1) (sexp2)  ;; after 3rd execution
     |(sexp1)  (sexp2)  ;; after 4th execution"
   (let ((old-point (point))
-        new-point)
-    (save-excursion
-      (if (catch 'break
-            (while (let ((ret (looking-back "[])]" 1)))
-                     (unless ret (throw 'break new-point))
-                     ret)
-              (down-list -1)
-              (setq new-point (point))))
-          (condition-case _err
-              (backward-sexp)
-            (scan-error))
-       (condition-case err 
-           (progn
-             (backward-sexp)
-             (when (pcase-search-point-at-list-p)
-               (forward-sexp)
-               (down-list -1)
-               (pcase-search--beginning-of-prev-sexp)))
-         (scan-error
-          (backward-char))))
-      (setq new-point (point)))
+        (new-point (save-excursion
+                     (dotimes (_ (or arg 1))
+                       (pcase-search--beginning-of-prev-sexp-1))
+                     (point))))
     (when (< new-point old-point)
       (goto-char new-point))))
+
+(defun pcase-search--beginning-of-next-sexp-1 ()
+  "Jump to the beginning of next regexp."
+  (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]"))
+        (old-point (point))
+        new-point)
+    (if (pcase-search-point-at-list-p)
+        (forward-char)
+      (condition-case err
+          (progn
+            (forward-sexp (1+ (if point-at-sexp-p 1 0)))
+            (backward-sexp))
+        (scan-error
+         (up-list)
+         (unless (pcase-search-point-at-list-p)
+           (pcase-search--beginning-of-next-sexp-1)))))
+    (point)))
 
 (defun pcase-search--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
@@ -146,19 +170,10 @@ it will find the nearest sexp rather than jumping to the next, for example:
      (sexp1)  (|sexp2) ;; after 4th execution"
   (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]"))
         (old-point (point))
-        new-point)
-    (save-excursion
-      (if (pcase-search-point-at-list-p)
-          (forward-char)
-        (condition-case err
-            (progn
-              (forward-sexp (+ (or arg 1) (if point-at-sexp-p 1 0)))
-              (backward-sexp))
-          (scan-error
-           (up-list)
-           (unless (pcase-search-point-at-list-p)
-             (pcase-search--beginning-of-next-sexp)))))
-      (setq new-point (point)))
+        (new-point (save-excursion
+                     (dotimes (_ (or arg 1))
+                       (pcase-search--beginning-of-next-sexp-1))
+                     (point))))
     (when (> new-point old-point)
       (goto-char new-point))))
 
