@@ -98,6 +98,41 @@ CALLBACK can be nil, t or a callback:
             t))
       t)))
 
+(defun pcase-search--beginning-of-prev-sexp (&optional arg)
+  "Jump to the beginning of prev ARG sexp and return the new point.
+
+Unlike normal backward behaviour, it will try to find every sub element, for example:
+
+     (sexp1)  (sepx2) |;; init point
+     (sexp1)  (|sexp2) ;; after 1st execution
+     (sexp1) |(sexp2)  ;; after 2nd execution
+     (|sexp1) (sexp2)  ;; after 3rd execution
+    |(sexp1)  (sexp2)  ;; after 4th execution"
+  (let ((old-point (point))
+        new-point)
+    (save-excursion
+      (if (catch 'break
+            (while (let ((ret (looking-back "[])]" 1)))
+                     (unless ret (throw 'break new-point))
+                     ret)
+              (down-list -1)
+              (setq new-point (point))))
+          (condition-case _err
+              (backward-sexp)
+            (scan-error))
+       (condition-case err 
+           (progn
+             (backward-sexp)
+             (when (pcase-search-point-at-list-p)
+               (forward-sexp)
+               (down-list -1)
+               (pcase-search--beginning-of-prev-sexp)))
+         (scan-error
+          (backward-char))))
+      (setq new-point (point)))
+    (when (< new-point old-point)
+      (goto-char new-point))))
+
 (defun pcase-search--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
 
@@ -128,7 +163,7 @@ it will find the nearest sexp rather than jumping to the next, for example:
       (goto-char new-point))))
 
 (defun pcase-search-point-at-list-p ()
-  (looking-at-p "[[`',@(\\[]"))
+  (looking-at-p "[`',@(\\[]"))
 
 (defun pcase-search-forward-1 (matcher &optional result-callback)
   (let (pos)

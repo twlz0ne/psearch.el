@@ -31,6 +31,11 @@
   `(with-temp-buffer
      (emacs-lisp-mode)
      (insert ,init)
+     (let ((noninteractive nil)
+           (jit-lock-functions '(font-lock-fontify-region)))
+       (font-lock-mode 1)
+       (font-lock-set-defaults)
+       (jit-lock-fontify-now))
      (goto-char (point-min))
      ,@body))
 
@@ -54,6 +59,28 @@
     (should (funcall matcher '(foo a)))
     (should (funcall matcher '(foo a b)))
     (should (funcall matcher '(foo a b ,(c 1 2))))))
+
+(ert-deftest pcase-search-test-beginning-of-prev-sexp ()
+  (pcase-search-test-with-buffer
+   "\
+(foo a b (c 1 2))
+((()))"
+   (goto-char (point-max))
+   (pcase-search--beginning-of-prev-sexp)
+   (should (equal (sexp-at-point) nil))
+   (dotimes (_ 4) (pcase-search--beginning-of-prev-sexp))
+   (should (equal (sexp-at-point) 2))))
+
+(ert-deftest pcase-search-test-beginning-of-next-sexp ()
+  (pcase-search-test-with-buffer
+   "\
+((()))
+(foo a b (c 1 2))"
+   (goto-char (point-min))
+   (pcase-search--beginning-of-next-sexp)
+   (should (equal (sexp-at-point) '(())))
+   (dotimes (_ 4) (pcase-search--beginning-of-next-sexp))
+   (should (equal (sexp-at-point) 'foo))))
 
 (ert-deftest pcase-search-test-forward ()
   (pcase-search-test-with-buffer
