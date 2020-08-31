@@ -88,7 +88,8 @@
 (bar a b)
 (unless nil
   (bar a b (c 1 2))
-  `(bar a b ,(c 1 2)))"))))
+  `(bar a b ,(c 1 2)))"))
+   (should (= (point) (1- (point-max))))))
 
 (provide 'pcase-search-test)
 

@@ -71,17 +71,32 @@ If ‘pcase-search-pp-print-p’ is not nil, return pretty-printted string."
       (pp-buffer))
     (string-trim-right (buffer-string))))
 
-(defsubst pcase-search--apply-replacement-at-point (matcher)
-  "Apply replacement at point if MATCHER returned non-nil."
-  (when-let* ((sexp (let ((bounds (bounds-of-thing-at-point 'sexp)))
-                      (save-restriction
-                        (narrow-to-region (point) (cdr bounds))
-                        (sexp-at-point))))
+(defsubst pcase-search--apply-replacement-at-point (matcher &optional callback)
+  "Apply replacement at point.
+
+MATCHER  validate the match pattern and return replacement
+CALLBACK can be nil, t or a callback:
+         - t         apply
+         - nil       don't apply
+         - callback  apply in callback. The callback accept replacemanet and
+                     bounds, return t if success"
+  (when-let* ((bounds (let ((bounds (bounds-of-thing-at-point 'sexp)))
+                        ;; (bounds-of-thing-at-point)
+                        ;; => actual    [`(,foo)]
+                        ;;    expected  `[(,foo)]
+                        (cons (point) (cdr bounds))))
+              (sexp (save-restriction
+                      (narrow-to-region (point) (cdr bounds))
+                      (sexp-at-point)))
               (rep (funcall matcher sexp)))
-    (mark-sexp)
-    (delete-region (region-beginning) (region-end))
-    (insert (pcase-search--print-to-string rep))
-    t))
+    (if callback
+        (if (functionp callback)
+            (funcall callback rep bounds)
+          (save-excursion
+            (delete-region (car bounds) (cdr bounds))
+            (insert (pcase-search--print-to-string rep))
+            t))
+      t)))
 
 (defun pcase-search--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
@@ -117,33 +132,26 @@ it will find the nearest sexp rather than jumping to the next, for example:
 
 (defun pcase-search-forward-1 (matcher &optional result-callback)
   (let (pos)
-    (when (if-let
-              ((result
-                (when (pcase-search-point-at-list-p)
-                  (funcall matcher (sexp-at-point)))))
-              (if result-callback
-                  (funcall result-callback result)
-                t)
-            (save-excursion
-              (catch 'break
-                (while (setq pos (pcase-search--beginning-of-next-sexp))
-                  (let ((sexp
-                         (let ((bounds (bounds-of-thing-at-point 'sexp)))
-                           (save-restriction
-                             (narrow-to-region (point) (cdr bounds))
-                             (sexp-at-point)))))
-                    (when-let ((result (funcall matcher sexp)))
-                      (when result-callback
-                        (funcall result-callback result))
-                      (throw 'break t)))))))
+    (when (or
+           ;; - point at sexp
+           (when (pcase-search-point-at-list-p)
+             (pcase-search--apply-replacement-at-point matcher
+                                                       result-callback))
+           ;; - rest
+           (save-excursion
+             (catch 'break
+               (while (setq pos (pcase-search--beginning-of-next-sexp))
+                 (when (pcase-search--apply-replacement-at-point
+                        matcher
+                        result-callback)
+                   (throw 'break t))))))
       (when pos
         (goto-char pos))
       (thing-at-point--end-of-sexp)
       (point))))
 
 (defun pcase-search-forward (pattern &optional result-pattern result-callback)
-  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)
-                          result-callback))
+  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)))
 
 ;;; minibuffer history
 
@@ -180,17 +188,20 @@ it will find the nearest sexp rather than jumping to the next, for example:
                     (let ((arr (split-string from pcase-search-replace-separator)))
                       (cons (car arr) (cadr arr)))))
          (to (or (cdr default)
-                 (read-from-minibuffer
-                  (format "Query replace %s with: " (car default))
-                  nil nil nil nil
-                  pcase-search-replace-history-variable t))))
+                 (let ((minibuffer-history
+                        (symbol-value pcase-search-replace-history-variable)))
+                   (read-from-minibuffer
+                    (format "Query replace %s with: " (car default))
+                    nil nil nil nil
+                    pcase-search-replace-history-variable t)))))
     (let ((from (car default)))
       (add-to-history pcase-search-replace-history-variable to)
       (add-to-history pcase-search-replace-history-variable from)
       (unless (or (string-empty-p from) (string-empty-p to))
-        (unless (assoc from pcase-search-replace-defaults)
-          (add-to-list 'pcase-search-replace-defaults (cons from to)))
-        (list from to)))))
+        (let ((default (assoc from pcase-search-replace-defaults)))
+          (unless (and (eq from (car default)) (eq to (cdr default)))
+            (add-to-list 'pcase-search-replace-defaults (cons from to))))
+        (list (read from) (read to))))))
 
 ;;;###autoload
 (defun pcase-search-replace (match-pattern replace-pattern)
@@ -208,27 +219,17 @@ Example:
     ;; (foo a b ...) -> (bar a b ...)
     ```"
   (interactive (pcase-search-replace-args))
-  (let ((matcher (pcase-search-make-matcher match-pattern replace-pattern))
-        new-pos)
-    (when-let
-        ((occurrences
-          (remove
-           nil
-           (append
-            (when (pcase-search-point-at-list-p)
-              (list
-               (pcase-search--apply-replacement-at-point matcher)))
-            (save-excursion
-              (cl-loop for pos = (pcase-search--beginning-of-next-sexp)
-                       while pos
-                       collect
-                       (when (pcase-search--apply-replacement-at-point matcher)
-                         (setq new-pos pos))))))))
-      (when new-pos
-        (goto-char new-pos))
-      (thing-at-point--end-of-sexp)
+  (let* ((matcher
+          (pcase-search-make-matcher match-pattern replace-pattern))
+         (points
+          (save-excursion
+            (cl-loop for pos = (pcase-search-forward-1 matcher t)
+                     while pos
+                     collect pos))))
+    (when points
+      (goto-char (car (last points)))
       (if (called-interactively-p 'any)
-          (message "Replaced %s occurrences" (length occurrences))
+          (message "Replaced %s occurrences" (length points))
         (point)))))
 
 (provide 'pcase-search)
