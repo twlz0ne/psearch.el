@@ -33,8 +33,9 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'subr-x)
 (require 'pcase)
+(require 'subr-x)
+(require 'thingatpt)
 
 (defcustom pcase-search-pp-print-p t
   "Control whether the results of ‘pcase-search--print-to-string’ are pretty-printed."
@@ -62,11 +63,42 @@ Example:
      (pcase sexp
        (,match-pattern ,(or result-pattern t)))))
 
+(defun pcase-search--prin1 (object &optional stream)
+  (if (consp object)
+      (progn
+        (let* ((car (pop object))
+               (quote-p (memq car '(\, quote function \` \,@ \,.))))
+          (unless quote-p 
+            (princ "(" stream))
+          (if (consp car)
+              (if (memq (car car) '(\,))
+                  (progn
+                    (princ (car car) stream)
+                    (princ (cadr car) stream)
+                    (when object
+                      (princ " " stream)))
+                (pcase-search--prin1 car stream))
+            (princ (cond
+                    ((eq car 'quote) '\')
+                    ((eq car 'function) "#'")
+                    (t car))
+                   stream)
+            (when (and object (not quote-p))
+              (princ " " stream)))
+          (when object
+            (while (setq car (pop object))
+              (pcase-search--prin1 car stream)
+              (when object
+                (princ " " stream))))
+          (unless quote-p
+            (princ ")" stream))))
+    (princ object stream)))
+
 (defsubst pcase-search--print-to-string (expr)
   "Return a string containing the printed representation of EXPR.
 If ‘pcase-search-pp-print-p’ is not nil, return pretty-printted string."
   (with-temp-buffer
-    (cl-prin1 expr (current-buffer))
+    (pcase-search--prin1 expr (current-buffer))
     (when pcase-search-pp-print-p
       (emacs-lisp-mode)
       (pp-buffer))
@@ -81,23 +113,24 @@ CALLBACK can be nil, t or a callback:
          - nil       don't apply
          - callback  apply in callback. The callback accept replacemanet and
                      bounds, return t if success"
-  (when-let* ((bounds (let ((bounds (bounds-of-thing-at-point 'sexp)))
-                        ;; (bounds-of-thing-at-point)
-                        ;; => actual    [`(,foo)]
-                        ;;    expected  `[(,foo)]
-                        (cons (point) (cdr bounds))))
-              (sexp (save-restriction
-                      (narrow-to-region (point) (cdr bounds))
-                      (sexp-at-point)))
-              (rep (funcall matcher sexp)))
-    (if callback
-        (if (functionp callback)
-            (funcall callback rep bounds)
-          (save-excursion
-            (delete-region (car bounds) (cdr bounds))
-            (insert (pcase-search--print-to-string rep))
-            t))
-      t)))
+  (let* ((bounds (let ((bounds (bounds-of-thing-at-point 'sexp)))
+                   ;; (bounds-of-thing-at-point)
+                   ;; => actual    [`(,foo)]
+                   ;;    expected  `[(,foo)]
+                   (cons (point) (cdr bounds))))
+         (sexp (save-restriction
+                 (narrow-to-region (point) (cdr bounds))
+                 (sexp-at-point)))
+         (rep (funcall matcher sexp)))
+    (when (and bounds sexp rep)
+      (if callback
+          (if (functionp callback)
+              (funcall callback rep bounds)
+            (save-excursion
+              (delete-region (car bounds) (cdr bounds))
+              (insert (pcase-search--print-to-string rep))
+              t))
+        t))))
 
 (defun pcase-search--beginning-of-prev-sexp-1 ()
   "Jump to the beginning of prev sexp."

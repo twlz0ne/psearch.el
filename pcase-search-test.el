@@ -53,6 +53,26 @@
      (should
       (string= string (mapconcat #'char-to-string (reverse chars) ""))))))
 
+(ert-deftest pcase-search-test-print-to-string ()
+  (let ((pcase-search-pp-print-p nil))
+    (should (string= "nil" (pcase-search--print-to-string nil)))
+    (should (string= "(nil)" (pcase-search--print-to-string '(nil))))
+    (should (string= "(foo)" (pcase-search--print-to-string '(foo))))
+    (should (string= "(foo bar)" (pcase-search--print-to-string '(foo bar))))
+    (should (string= "(foo 'bar)" (pcase-search--print-to-string '(foo 'bar))))
+    (should (string= "(foo #'bar)" (pcase-search--print-to-string '(foo #'bar))))
+    (should (string= "`(foo ,bar)" (pcase-search--print-to-string '`(foo ,bar))))
+    (should (string= "`(foo ,(bar 1 2))" (pcase-search--print-to-string '`(foo ,(bar 1 2)))))
+    (should (string= "`(foo (,bar 1 2))" (pcase-search--print-to-string '`(foo (,bar 1 2)))))
+    (should (string= "`(foo ,@(bar 1 2))" (pcase-search--print-to-string '`(foo ,@(bar 1 2)))))
+    (should (string= "`(foo `,@(,bar 1 2))" (pcase-search--print-to-string '`(foo `,@(,bar 1 2)))))
+    ;; incomplete backquote expressions
+    (should (string= "(foo ,(bar 1 2))" (pcase-search--print-to-string '(foo ,(bar 1 2)))))
+    (should (string= "(foo (,bar 1 2))" (pcase-search--print-to-string '(foo (,bar 1 2)))))
+    (should (string= "(foo ,@(bar 1 2))" (pcase-search--print-to-string '(foo ,@(bar 1 2)))))
+    (should (string= "(foo `,@(,bar 1 2))" (pcase-search--print-to-string '(foo `,@(,bar 1 2)))))
+    ))
+
 (ert-deftest pcase-search-test-matcher ()
   (let ((matcher (pcase-search-make-matcher '`(foo . ,_))))
     (should (funcall matcher '(foo)))
