@@ -1,4 +1,4 @@
-;;; pcase-search.el --- Pcase-based search API -*- lexical-binding: t; -*-
+;;; psearch.el --- Pcase based search for Emacs Lisp -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2020 Gong Qijian <gongqijian@gmail.com>
 
@@ -6,7 +6,7 @@
 ;; Created: 2020/08/29
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "25.1"))
-;; URL: https://github.com/twlz0ne/pcase-search
+;; URL: https://github.com/twlz0ne/psearch
 ;; Keywords: tools
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 
 ;;; Commentary:
 
-;; Pcase-based search API
+;; Pcase based search for Emacs Lisp
 
 ;;; Change Log:
 
@@ -37,16 +37,16 @@
 (require 'subr-x)
 (require 'thingatpt)
 
-(defcustom pcase-search-pp-print-p t
-  "Control whether the results of ‘pcase-search--print-to-string’ are pretty-printed."
-  :group 'pcase-search
+(defcustom psearch-pp-print-p t
+  "Control whether the results of ‘psearch--print-to-string’ are pretty-printed."
+  :group 'psearch
   :type 'boolean)
 
-(defun pcase-search-point-at-list-p ()
+(defun psearch-point-at-list-p ()
   "Determine if point at the beginning of list."
   (looking-at-p "[`',@(\\[]"))
 
-(defun pcase-search--prin1 (object &optional stream)
+(defun psearch--prin1 (object &optional stream)
   "Print OBJECT on STREAM according to its type."
   (if (consp object)
       (progn
@@ -61,7 +61,7 @@
                     (princ (cadr car) stream)
                     (when object
                       (princ " " stream)))
-                (pcase-search--prin1 car stream))
+                (psearch--prin1 car stream))
             (princ (cond
                     ((eq car 'quote) '\')
                     ((eq car 'function) "#'")
@@ -71,24 +71,24 @@
               (princ " " stream)))
           (when object
             (while (setq car (pop object))
-              (pcase-search--prin1 car stream)
+              (psearch--prin1 car stream)
               (when object
                 (princ " " stream))))
           (unless quote-p
             (princ ")" stream))))
     (princ object stream)))
 
-(defsubst pcase-search--print-to-string (expr)
+(defsubst psearch--print-to-string (expr)
   "Return a string containing the printed representation of EXPR.
-If ‘pcase-search-pp-print-p’ is not nil, return pretty-printted string."
+If ‘psearch-pp-print-p’ is not nil, return pretty-printted string."
   (with-temp-buffer
-    (pcase-search--prin1 expr (current-buffer))
-    (when pcase-search-pp-print-p
+    (psearch--prin1 expr (current-buffer))
+    (when psearch-pp-print-p
       (emacs-lisp-mode)
       (pp-buffer))
     (string-trim-right (buffer-string))))
 
-(defun pcase-search-make-matcher (match-pattern &optional result-pattern)
+(defun psearch-make-matcher (match-pattern &optional result-pattern)
   "Create a function to match the input sexp.
 
 MATCH-PATTERN   to match the input sexp
@@ -97,11 +97,11 @@ RESULT-PATTERN  to generate the result (default t)
 Example:
 
     ```
-    (let ((matcher (pcase-search-make-matcher '`(foo ,val) '`(bar ,val))))
+    (let ((matcher (psearch-make-matcher '`(foo ,val) '`(bar ,val))))
       (funcall matcher '(foo 1)))
     ;; => (bar 1)
 
-    (let ((matcher (pcase-search-make-matcher '`(foo ,val))))
+    (let ((matcher (psearch-make-matcher '`(foo ,val))))
       (funcall matcher '(foo 1)))
     ;; t
     ```"
@@ -109,7 +109,7 @@ Example:
      (pcase sexp
        (,match-pattern ,(or result-pattern t)))))
 
-(defsubst pcase-search--apply-replacement-at-point (matcher &optional callback)
+(defsubst psearch--apply-replacement-at-point (matcher &optional callback)
   "Apply replacement at point.
 
 MATCHER  validate the match pattern and return replacement
@@ -133,11 +133,11 @@ CALLBACK can be nil, t or a callback:
               (funcall callback rep bounds)
             (save-excursion
               (delete-region (car bounds) (cdr bounds))
-              (insert (pcase-search--print-to-string rep))
+              (insert (psearch--print-to-string rep))
               t))
         t))))
 
-(defun pcase-search--beginning-of-prev-sexp-1 ()
+(defun psearch--beginning-of-prev-sexp-1 ()
   "Jump to the beginning of prev sexp."
   (let (new-point)
     (if (catch 'break
@@ -152,15 +152,15 @@ CALLBACK can be nil, t or a callback:
       (condition-case _err
           (progn
             (backward-sexp)
-            (when (pcase-search-point-at-list-p)
+            (when (psearch-point-at-list-p)
               (forward-sexp)
               (down-list -1)
-              (pcase-search--beginning-of-prev-sexp-1)))
+              (psearch--beginning-of-prev-sexp-1)))
         (scan-error
          (backward-char))))
     (point)))
 
-(defun pcase-search--beginning-of-prev-sexp (&optional arg)
+(defun psearch--beginning-of-prev-sexp (&optional arg)
   "Jump to the beginning of prev ARG sexp and return the new point.
 
 Unlike normal backward behaviour, it will try to find every sub element, for
@@ -174,15 +174,15 @@ example:
   (let ((old-point (point))
         (new-point (save-excursion
                      (dotimes (_ (or arg 1))
-                       (pcase-search--beginning-of-prev-sexp-1))
+                       (psearch--beginning-of-prev-sexp-1))
                      (point))))
     (when (< new-point old-point)
       (goto-char new-point))))
 
-(defun pcase-search--beginning-of-next-sexp-1 ()
+(defun psearch--beginning-of-next-sexp-1 ()
   "Jump to the beginning of next regexp."
   (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]")))
-    (if (pcase-search-point-at-list-p)
+    (if (psearch-point-at-list-p)
         (forward-char)
       (condition-case _err
           (progn
@@ -190,11 +190,11 @@ example:
             (backward-sexp))
         (scan-error
          (up-list)
-         (unless (pcase-search-point-at-list-p)
-           (pcase-search--beginning-of-next-sexp-1)))))
+         (unless (psearch-point-at-list-p)
+           (psearch--beginning-of-next-sexp-1)))))
     (point)))
 
-(defun pcase-search--beginning-of-next-sexp (&optional arg)
+(defun psearch--beginning-of-next-sexp (&optional arg)
   "Jump to the beginning of next ARG sexp and return the new point.
 
 Unlike normal forward behaviour, if the point not at the beginning of a sexp,
@@ -208,22 +208,22 @@ it will find the nearest sexp rather than jumping to the next, for example:
   (let ((old-point (point))
         (new-point (save-excursion
                      (dotimes (_ (or arg 1))
-                       (pcase-search--beginning-of-next-sexp-1))
+                       (psearch--beginning-of-next-sexp-1))
                      (point))))
     (when (> new-point old-point)
       (goto-char new-point))))
 
-(defun pcase-search-backward-1 (matcher &optional result-callback)
+(defun psearch-backward-1 (matcher &optional result-callback)
   "Move backward across one sexp matched by MATCHER.
 Set point to the beginning of the occurrence found, and return point.
 
-MATCHER          a function generated by ‘pcase-search-make-matcher’
-RESULT-CALLBACK  a function to handle the result, see ‘pcase-search-forward’ for more"
+MATCHER          a function generated by ‘psearch-make-matcher’
+RESULT-CALLBACK  a function to handle the result, see ‘psearch-forward’ for more"
   (let (pos)
     (when (save-excursion
             (catch 'break
-              (while (setq pos (pcase-search--beginning-of-prev-sexp))
-                (when (pcase-search--apply-replacement-at-point
+              (while (setq pos (psearch--beginning-of-prev-sexp))
+                (when (psearch--apply-replacement-at-point
                        matcher
                        result-callback)
                   (throw 'break t)))))
@@ -231,23 +231,23 @@ RESULT-CALLBACK  a function to handle the result, see ‘pcase-search-forward’
         (goto-char pos))
       (point))))
 
-(defun pcase-search-forward-1 (matcher &optional result-callback)
+(defun psearch-forward-1 (matcher &optional result-callback)
   "Move forward across one sexp matched by MATCHER.
 Set point to the end of the occurrence found, and return point.
 
-MATCHER          a function generated by ‘pcase-search-make-matcher’
-RESULT-CALLBACK  a function to handle the result, see ‘pcase-search-forward’ for more"
+MATCHER          a function generated by ‘psearch-make-matcher’
+RESULT-CALLBACK  a function to handle the result, see ‘psearch-forward’ for more"
   (let (pos)
     (when (or
            ;; - point at sexp
-           (when (pcase-search-point-at-list-p)
-             (pcase-search--apply-replacement-at-point matcher
+           (when (psearch-point-at-list-p)
+             (psearch--apply-replacement-at-point matcher
                                                        result-callback))
            ;; - rest
            (save-excursion
              (catch 'break
-               (while (setq pos (pcase-search--beginning-of-next-sexp))
-                 (when (pcase-search--apply-replacement-at-point
+               (while (setq pos (psearch--beginning-of-next-sexp))
+                 (when (psearch--apply-replacement-at-point
                         matcher
                         result-callback)
                    (throw 'break t))))))
@@ -258,43 +258,43 @@ RESULT-CALLBACK  a function to handle the result, see ‘pcase-search-forward’
 
 ;;; minibuffer history
 
-(defcustom pcase-search-replace-separator " → "
+(defcustom psearch-replace-separator " → "
   "String that separates FROM and TO in the history of replacement pairs."
-  :group 'pcase-search
+  :group 'psearch
   :type '(choice
           (const :tag "Disabled" nil)
           string))
 
-(defvar pcase-search-replace-history nil
-  "Default history list for ‘pcase-search-replace’ commands.")
+(defvar psearch-replace-history nil
+  "Default history list for ‘psearch-replace’ commands.")
 
-(defcustom pcase-search-replace-history-variable 'pcase-search-replace-history
-  "History list to use for the TO argument of ‘pcase-search-replace’ commands.
+(defcustom psearch-replace-history-variable 'psearch-replace-history
+  "History list to use for the TO argument of ‘psearch-replace’ commands.
 The value of this variable should be a symbol; that symbol
 is used as a variable to hold a history list for replacement
 strings or patterns."
-  :group 'pcase-search
+  :group 'psearch
   :type 'symbol)
 
-(defvar pcase-search-replace-defaults nil
-  "Default values of FROM-STRING and TO-STRING for ‘pcase-search-replace’.
+(defvar psearch-replace-defaults nil
+  "Default values of FROM-STRING and TO-STRING for ‘psearch-replace’.
 This is a list of cons cells (FROM-STRING . TO-STRING), or nil
 if there are no default values.")
 
-(defun pcase-search-replace-args ()
+(defun psearch-replace-args ()
   "Read the match-pattern and the result-pattern."
   (let* ((separator
-          (propertize pcase-search-replace-separator
-                      'display pcase-search-replace-separator
+          (propertize psearch-replace-separator
+                      'display psearch-replace-separator
                       'face 'minibuffer-prompt
                       'separator t))
          (minibuffer-history
           (append
            (mapcar (pcase-lambda (`(,from . ,to))
                      (concat from separator to))
-                   pcase-search-replace-defaults)
-           (symbol-value pcase-search-replace-history-variable)))
-         (default (car pcase-search-replace-defaults))
+                   psearch-replace-defaults)
+           (symbol-value psearch-replace-history-variable)))
+         (default (car psearch-replace-defaults))
          (from (read-from-minibuffer
                 (format "Query replace %s: "
                         (if default
@@ -313,22 +313,22 @@ if there are no default values.")
                       (cons (car arr) (cadr arr)))))
          (to (or (cdr default)
                  (let ((minibuffer-history
-                        (symbol-value pcase-search-replace-history-variable)))
+                        (symbol-value psearch-replace-history-variable)))
                    (read-from-minibuffer
                     (format "Query replace %s with: " (car default))
                     nil nil nil nil
-                    pcase-search-replace-history-variable t)))))
+                    psearch-replace-history-variable t)))))
     (let ((from (car default)))
-      (add-to-history pcase-search-replace-history-variable to)
-      (add-to-history pcase-search-replace-history-variable from)
+      (add-to-history psearch-replace-history-variable to)
+      (add-to-history psearch-replace-history-variable from)
       (unless (or (string-empty-p from) (string-empty-p to))
-        (let ((default (assoc from pcase-search-replace-defaults)))
+        (let ((default (assoc from psearch-replace-defaults)))
           (unless (and (eq from (car default)) (eq to (cdr default)))
-            (add-to-list 'pcase-search-replace-defaults (cons from to))))
+            (add-to-list 'psearch-replace-defaults (cons from to))))
         (list (read from) (read to))))))
 
 ;;;###autoload
-(defun pcase-search-backward (pattern &optional result-pattern result-callback)
+(defun psearch-backward (pattern &optional result-pattern result-callback)
   "Move backward across one sexp matched by MATCHER.
 Set point to the beginning of the occurrence found, and return point.
 
@@ -337,11 +337,11 @@ RESULT-PATTERN   pattern to generate result
 RESULT-CALLBACK  a function to handle the result, it accpet two arguments:
                  - result  the result generated by RESULT-PATTERN
                  - bounds  the bounds of the matched sexp"
-  (pcase-search-backward-1 (pcase-search-make-matcher pattern result-pattern)
+  (psearch-backward-1 (psearch-make-matcher pattern result-pattern)
                            result-callback))
 
 ;;;###autoload
-(defun pcase-search-forward (pattern &optional result-pattern result-callback)
+(defun psearch-forward (pattern &optional result-pattern result-callback)
   "Move forward across one sexp matched by MATCHER.
 Set point to the end of the occurrence found, and return point.
 
@@ -350,11 +350,11 @@ RESULT-PATTERN   pattern to generate result
 RESULT-CALLBACK  a function to handle the result, it accpet two arguments:
                  - result  the result generated by RESULT-PATTERN
                  - bounds  the bounds of the matched sexp"
-  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)
+  (psearch-forward-1 (psearch-make-matcher pattern result-pattern)
                           result-callback))
 
 ;;;###autoload
-(defun pcase-search-replace (match-pattern replace-pattern)
+(defun psearch-replace (match-pattern replace-pattern)
   "Replace some occurences mathcing MATCH-PATTERN with REPLACE-PATTERN.
 
 MATCH-PATTERN is a pcase pattern to match.  REPLACE-PATTERN is an Elisp
@@ -364,17 +364,17 @@ in MATCH-PATTERN.
 Example:
 
     ```
-    (pcase-search-replace '`(foo . ,rest)
+    (psearch-replace '`(foo . ,rest)
                           '`(bar ,@rest))
     ;; (foo a b ...) -> (bar a b ...)
     ```"
-  (interactive (pcase-search-replace-args))
+  (interactive (psearch-replace-args))
   (let* ((matcher
-          (pcase-search-make-matcher match-pattern replace-pattern))
+          (psearch-make-matcher match-pattern replace-pattern))
          (points
           (save-excursion
             (cl-loop with pos
-                     while (setq pos (pcase-search-forward-1 matcher t))
+                     while (setq pos (psearch-forward-1 matcher t))
                      collect pos))))
     (when points
       (goto-char (car (last points)))
@@ -382,6 +382,6 @@ Example:
           (message "Replaced %s occurrences" (length points))
         (point)))))
 
-(provide 'pcase-search)
+(provide 'psearch)
 
-;;; pcase-search.el ends here
+;;; psearch.el ends here
