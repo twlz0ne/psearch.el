@@ -7,7 +7,7 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
 ## Installation
 
 ``` elisp
-(quelpa '(multi-translate
+(quelpa '(psearch
           :fetcher github
           :repo "twlz0ne/psearch.el"
           :files ("psearch.el")))
