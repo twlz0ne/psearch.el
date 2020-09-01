@@ -125,12 +125,13 @@ CALLBACK can be nil, t or a callback:
                    ;; (bounds-of-thing-at-point)
                    ;; => actual    [`(,foo)]
                    ;;    expected  `[(,foo)]
-                   (cons (point) (cdr bounds))))
-         (sexp (save-restriction
-                 (narrow-to-region (point) (cdr bounds))
-                 (sexp-at-point)))
-         (rep (funcall matcher sexp)))
-    (when (and bounds sexp rep)
+                   (when bounds (cons (point) (cdr bounds)))))
+         (sexp (when bounds
+                 (save-restriction
+                   (narrow-to-region (point) (cdr bounds))
+                   (sexp-at-point))))
+         (rep (when sexp (funcall matcher sexp))))
+    (when rep
       (if callback
           (if (functionp callback)
               (funcall callback rep bounds)
