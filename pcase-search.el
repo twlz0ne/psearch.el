@@ -32,6 +32,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'subr-x)
 (require 'pcase)
 
@@ -100,8 +101,7 @@ CALLBACK can be nil, t or a callback:
 
 (defun pcase-search--beginning-of-prev-sexp-1 ()
   "Jump to the beginning of prev sexp."
-  (let ((old-point (point))
-        new-point)
+  (let (new-point)
     (if (catch 'break
           (while (let ((ret (looking-back "[])]" 1)))
                    (unless ret (throw 'break new-point))
@@ -111,7 +111,7 @@ CALLBACK can be nil, t or a callback:
         (condition-case _err
             (backward-sexp)
           (scan-error))
-      (condition-case err 
+      (condition-case _err 
           (progn
             (backward-sexp)
             (when (pcase-search-point-at-list-p)
@@ -142,12 +142,10 @@ Unlike normal backward behaviour, it will try to find every sub element, for exa
 
 (defun pcase-search--beginning-of-next-sexp-1 ()
   "Jump to the beginning of next regexp."
-  (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]"))
-        (old-point (point))
-        new-point)
+  (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]")))
     (if (pcase-search-point-at-list-p)
         (forward-char)
-      (condition-case err
+      (condition-case _err
           (progn
             (forward-sexp (1+ (if point-at-sexp-p 1 0)))
             (backward-sexp))
@@ -168,8 +166,7 @@ it will find the nearest sexp rather than jumping to the next, for example:
      (|sexp1) (sexp2)  ;; after 2nd execution
      (sexp1) |(sexp2)  ;; after 3rd execution
      (sexp1)  (|sexp2) ;; after 4th execution"
-  (let ((point-at-sexp-p (looking-at-p "[^\s\t\r\n]"))
-        (old-point (point))
+  (let ((old-point (point))
         (new-point (save-excursion
                      (dotimes (_ (or arg 1))
                        (pcase-search--beginning-of-next-sexp-1))
@@ -195,7 +192,8 @@ it will find the nearest sexp rather than jumping to the next, for example:
       (point))))
 
 (defun pcase-search-backward (pattern &optional result-pattern result-callback)
-  (pcase-search-backward-1 (pcase-search-make-matcher pattern result-pattern)))
+  (pcase-search-backward-1 (pcase-search-make-matcher pattern result-pattern)
+                           result-callback))
 
 (defun pcase-search-forward-1 (matcher &optional result-callback)
   (let (pos)
@@ -218,7 +216,8 @@ it will find the nearest sexp rather than jumping to the next, for example:
       (point))))
 
 (defun pcase-search-forward (pattern &optional result-pattern result-callback)
-  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)))
+  (pcase-search-forward-1 (pcase-search-make-matcher pattern result-pattern)
+                          result-callback))
 
 ;;; minibuffer history
 
@@ -290,8 +289,8 @@ Example:
           (pcase-search-make-matcher match-pattern replace-pattern))
          (points
           (save-excursion
-            (cl-loop for pos = (pcase-search-forward-1 matcher t)
-                     while pos
+            (cl-loop with pos
+                     while (setq pos (pcase-search-forward-1 matcher t))
                      collect pos))))
     (when points
       (goto-char (car (last points)))
