@@ -284,8 +284,9 @@ strings or patterns."
 This is a list of cons cells (FROM-STRING . TO-STRING), or nil
 if there are no default values.")
 
-(defun psearch-replace-args ()
-  "Read the match-pattern and the result-pattern."
+(defun psearch-replace-args (&optional prompt-prefix)
+  "Read the match pattern and the replace pattern.
+If PROMPT-PREFIX is nil, use \"Query replace\" as default prompt prefix."
   (let* ((separator
           (propertize psearch-replace-separator
                       'display psearch-replace-separator
@@ -299,7 +300,8 @@ if there are no default values.")
            (symbol-value psearch-replace-history-variable)))
          (default (car psearch-replace-defaults))
          (from (read-from-minibuffer
-                (format "Query replace %s: "
+                (format "%s %s: "
+                        (or prompt-prefix "Query replace")
                         (if default
                             (list "default"
                                   (concat (car default)
