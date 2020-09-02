@@ -58,3 +58,27 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
     |(match a (b c))     =>     |(replace a (b c))
      (match a (b|c))     =>     |(replace a (b c))
     ```
+
+## Known issue
+
+Since the behaviour of `thing-at-point` has changed since 27 ([`0efb881`](https://emba.gnu.org/emacs/emacs/-/commit/0efb88150df56559e8d649e657902fb51ad43bc1)), the result of the following code will vary depending on the Emacs version:
+
+``` elisp
+;; |(foo (bar))
+(when (psearch-forward '`(bar))
+  (thing-at-point 'sexp))
+;; => (bar) [28.0]
+;;    (bar) [27.1]
+;;     nil  [26.1]
+;;     nil  [25.1]
+```
+
+The reliable way to get the sexp is:
+
+``` elisp
+;; |(foo (bar))
+(let (sexp-bounds)
+  (when (psearch-forward '`(bar) t (lambda (_ bounds) (setq sexp-bounds bounds)))
+    (buffer-substring (car sexp-bounds) (car sexp-bounds))))
+```
+
