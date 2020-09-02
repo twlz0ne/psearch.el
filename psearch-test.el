@@ -125,11 +125,14 @@
 (foo a b)
 (unless nil
   `(foo a b ,(c 1 2)))"
-   (let ((pattern '`(foo a b . ,_)))
-     (psearch-forward pattern)
-     (should (equal (sexp-at-point) '(foo a b)))
-     (psearch-forward pattern)
-     (should (equal (sexp-at-point) '`(foo a b ,(c 1 2)))))))
+   (let ((pattern '`(foo a b . ,_))
+         (assert-func
+          (lambda (expected-sexp)
+            (lambda (_result bounds)
+              (let ((sexp (read (buffer-substring (car bounds) (cdr bounds)))))
+                (should (equal sexp expected-sexp)))))))
+     (psearch-forward pattern t (funcall assert-func '(foo a b)))
+     (psearch-forward pattern t (funcall assert-func '(foo a b ,(c 1 2)))))))
 
 (ert-deftest psearch-test-replace ()
   (psearch-test-with-buffer
