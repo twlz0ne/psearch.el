@@ -47,7 +47,8 @@
 
 (defun psearch-point-at-list-p ()
   "Determine if point at the beginning of list."
-  (looking-at-p "[`',@(\\[]"))
+  (or (looking-at-p "[(\\[]")
+      (looking-at-p "['`,@]*(")))
 
 (defun psearch--prin1 (object &optional stream)
   "Print OBJECT on STREAM according to its type."

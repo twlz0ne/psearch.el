@@ -43,15 +43,19 @@
 ;;; tests
 
 (ert-deftest psearch-test-point-at-list-p ()
-  (psearch-test-with-buffer
-   "`',@(["
-   (let ((string (buffer-substring-no-properties (point-min) (point-max)))
-         chars)
-     (while (psearch-point-at-list-p)
-       (push (char-after (point)) chars)
-       (forward-char))
-     (should
-      (string= string (mapconcat #'char-to-string (reverse chars) ""))))))
+  (mapc (pcase-lambda (`(,input ,expected))
+          (with-temp-buffer
+            (insert input)
+            (goto-char (point-min))
+            (should (equal expected (psearch-point-at-list-p)))))
+        '(("'foo"        nil)
+          ("'(foo)"      t)
+          ("',(foo)"     t)
+          ("',@(foo)"    t)
+          ("'`,@(foo)"   t)
+          ("`',(foo)"    t)
+          ("`',@(foo)"   t)
+          ("``',,@(foo)" t))))
 
 (ert-deftest psearch-test-print-to-string ()
   (let ((psearch-pp-print-p nil))
@@ -80,7 +84,29 @@
     (should (funcall matcher '(foo a b)))
     (should (funcall matcher '(foo a b ,(c 1 2))))))
 
-(ert-deftest psearch-test-beginning-of-prev-sexp ()
+(ert-deftest psearch-test-beginning-of-prev-sexp-1 ()
+  (psearch-test-with-buffer
+   "(foo bar)"
+   (goto-char (point-max))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "bar)" (buffer-substring (point) (point-max))))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "foo bar)" (buffer-substring (point) (point-max))))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "(foo bar)" (buffer-substring (point) (point-max))))))
+
+(ert-deftest psearch-test-beginning-of-prev-sexp-2 ()
+  (psearch-test-with-buffer
+   "(foo 'bar)\n"
+   (goto-char (point-max))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "'bar)\n" (buffer-substring (point) (point-max))))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "foo 'bar)\n" (buffer-substring (point) (point-max))))
+   (psearch--beginning-of-prev-sexp)
+   (should (string= "(foo 'bar)\n" (buffer-substring (point) (point-max))))))
+
+(ert-deftest psearch-test-beginning-of-prev-sexp-3 ()
   (psearch-test-with-buffer
    "\
 (foo a b (c 1 2))
