@@ -65,6 +65,7 @@
     (should (string= "(foo bar)" (psearch--print-to-string '(foo bar))))
     (should (string= "(foo 'bar)" (psearch--print-to-string '(foo 'bar))))
     (should (string= "(foo #'bar)" (psearch--print-to-string '(foo #'bar))))
+    (should (string= "(foo \"bar\")" (psearch--print-to-string '(foo "bar"))))
     (should (string= "`(foo ,bar)" (psearch--print-to-string '`(foo ,bar))))
     (should (string= "`(foo ,(bar 1 2))" (psearch--print-to-string '`(foo ,(bar 1 2)))))
     (should (string= "`(foo (,bar 1 2))" (psearch--print-to-string '`(foo (,bar 1 2)))))

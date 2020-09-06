@@ -66,11 +66,13 @@
                     (when object
                       (princ " " stream)))
                 (psearch--prin1 car stream))
-            (princ (cond
-                    ((eq car 'quote) '\')
-                    ((eq car 'function) "#'")
-                    (t car))
-                   stream)
+            (if (stringp car)
+                (prin1 car stream)
+              (princ (cond
+                      ((eq car 'quote) '\')
+                      ((eq car 'function) "#'")
+                      (t car))
+                     stream))
             (when (and object (not quote-p))
               (princ " " stream)))
           (when object
@@ -80,7 +82,9 @@
                 (princ " " stream))))
           (unless quote-p
             (princ ")" stream))))
-    (princ object stream)))
+    (if (stringp object)
+        (prin1 object stream)
+      (princ object stream))))
 
 (defsubst psearch--print-to-string (expr)
   "Return a string containing the printed representation of EXPR.
