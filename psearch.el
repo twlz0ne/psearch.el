@@ -361,12 +361,13 @@ RESULT-CALLBACK  a function to handle the result, it accpet two arguments:
                           result-callback))
 
 ;;;###autoload
-(defun psearch-replace (match-pattern replace-pattern)
+(defun psearch-replace (match-pattern replace-pattern &optional beg end)
   "Replace some occurences mathcing MATCH-PATTERN with REPLACE-PATTERN.
 
 MATCH-PATTERN is a pcase pattern to match.  REPLACE-PATTERN is an Elisp
 expression that is evaluated repeatedly for each match with bindings created
-in MATCH-PATTERN.
+in MATCH-PATTERN.  BEG and END specify the search region, default are (point)
+and (point-max).
 
 Example:
 
@@ -380,9 +381,13 @@ Example:
           (psearch-make-matcher match-pattern replace-pattern))
          (points
           (save-excursion
-            (cl-loop with pos
-                     while (setq pos (psearch-forward-1 matcher t))
-                     collect pos))))
+            (save-restriction
+              (when (or beg end)
+                (narrow-to-region (if beg (goto-char beg) (point))
+                                  (or end (point-max))))
+              (cl-loop with pos
+                       while (setq pos (psearch-forward-1 matcher t))
+                       collect pos)))))
     (when points
       (goto-char (car (last points)))
       (if (called-interactively-p 'any)
