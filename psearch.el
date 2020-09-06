@@ -389,22 +389,14 @@ Example:
           (message "Replaced %s occurrences" (length points))
         (point)))))
 
-(cl-defun psearch-replace-at-point (match-pattern
-                                    replace-pattern
-                                    &key
-                                      filter-expr
-                                      filter-string
-                                    &&allow-other-keys)
+(defun psearch-replace-at-point (match-pattern replace-pattern)
   "Replace the sexp matching MATCH-PATTERN at point with REPLACE-PATTERN.
 
 Replace only the sexp at point, that is, the point is at the beginning of it or
 inside it.  For example:
 
         |(match a (b c))    =>     |(replace a (b c))
-         (match a (b|c))    =>     |(replace a (b c))
-
-FILTER-EXPR     a function to filter the result expr before printing as string
-FILTER-STRING   a function to filter the result string before insert"
+         (match a (b|c))    =>     |(replace a (b c))"
   (interactive (psearch-replace-args "Query replace at point"))
   (let ((matcher (psearch-make-matcher match-pattern replace-pattern))
         (pos (point)))
@@ -413,12 +405,8 @@ FILTER-STRING   a function to filter the result string before insert"
                                   (lambda (replacement bounds)
                                     (when (< (car bounds) pos (cdr bounds))
                                       (delete-region (car bounds) (cdr bounds))
-                                      (insert (funcall
-                                               (or filter-string #'identity)
-                                               (psearch--print-to-string
-                                                (funcall
-                                                 (or filter-expr #'identity)
-                                                 replacement))))
+                                      (insert (psearch--print-to-string
+                                               replacement))
                                       t))))
       (if (called-interactively-p 'any)
           (message "Replaced")

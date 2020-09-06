@@ -50,7 +50,7 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
     or <kbd>M-x</kbd> <code>psearch-replace</code> <kbd>RET</kbd> <code>\`(foo . ,rest)</code> <kbd>RET</kbd> <code>\`(bar ,@rest)</code>.
 
 
-- **psearch-replace-at-point** _`(match-pattern replace-pattern &key filter-expr filter-string)`_
+- **psearch-replace-at-point** _`(match-pattern replace-pattern)`_
 
   Similar to `psearch-replace`, but replace only the sexp at point, that is, the point is at the beginning of it or inside it.  For example:
 
