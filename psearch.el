@@ -50,6 +50,22 @@
   (or (looking-at-p "[(\\[]")
       (looking-at-p "['`,@]*(")))
 
+(defcustom psearch-delete-collect-replace-region-p nil
+  "Wheter to delete whole region when search replace with collect pattern.
+
+nil     delete bounds of matched only
+t       delete whole search region
+
+Example:
+
+        ;; # delete matched bounds
+        [ (matched1) (others)... (matched2) ] => [ (others)... (replacement) ]
+
+        ;; # delete whole region
+        [ (matched1) (others)... (matched2) ] => [ (replacement) ]"
+  :group 'psearch
+  :type 'boolean)
+
 (defun psearch--prin1 (object &optional stream)
   "Print OBJECT on STREAM according to its type."
   (if (consp object)
@@ -368,21 +384,46 @@ RESULT-CALLBACK  a function to handle the result, it accpet two arguments:
 (defun psearch-replace (match-pattern replace-pattern &optional beg end)
   "Replace some occurences mathcing MATCH-PATTERN with REPLACE-PATTERN.
 
-MATCH-PATTERN is a pcase pattern to match.  REPLACE-PATTERN is an Elisp
-expression that is evaluated repeatedly for each match with bindings created
-in MATCH-PATTERN.  BEG and END specify the search region, default are (point)
-and (point-max).
+MATCH-PATTERN   a pcase pattern to match.
+REPLACE-PATTERN an expression generate replacement for each match with bindings
+                created in MATCH-PATTERN and apply theme immediately, or a pair
+                of expressions that the first is used to collect replacement for
+                each matched into local variable ‘its’ instead of appling them 
+                immediately and the second is used to apply all of the collected
+                replacement.
+BEG and END     specify the search region, default are (point) and (point-max).
 
-Example:
+Examples:
 
     ```
     (psearch-replace '`(foo . ,rest)
                      '`(bar ,@rest))
-    ;; (foo a b ...) -> (bar a b ...)
-    ```"
+    ;; |(foo a b ...) -> (bar a b ...)|
+    ```
+
+   ```
+   (pcase-replace '`(setq ,sym ,val)
+                  '(`(,sym ,val) `(setq ,@(-flattern-n 1 its))))
+   ;; [(setq foo 1)  =>  (setq foo 1
+   ;;  (setq bar 2)]           bar 2)|
+   ```"
   (interactive (psearch-replace-args))
-  (let* ((matcher
-          (psearch-make-matcher match-pattern replace-pattern))
+  (let* (its
+         bounds-list
+         collect-pattern
+         (final-pattern (pcase replace-pattern
+                          (`(`,_collect `,_final)
+                           (setq collect-pattern (car replace-pattern))
+                           (cadr replace-pattern))))
+         (callback (if collect-pattern
+                       (lambda (result bounds)
+                         (push result its)
+                         (push bounds bounds-list)
+                         t)
+                     t))
+         (matcher
+          (psearch-make-matcher match-pattern
+                                (or collect-pattern replace-pattern)))
          (points
           (save-excursion
             (save-restriction
@@ -390,10 +431,25 @@ Example:
                 (narrow-to-region (if beg (goto-char beg) (point))
                                   (or end (point-max))))
               (cl-loop with pos
-                       while (setq pos (psearch-forward-1 matcher t))
+                       while (setq pos (psearch-forward-1 matcher callback))
                        collect pos)))))
     (when points
       (goto-char (car (last points)))
+      (when its
+        (let ((newline-p (eq (char-before end) ?\n)))
+          (if (and psearch-delete-collect-replace-region-p beg end)
+              (delete-region beg end)
+            (dolist (bounds bounds-list)
+              (delete-region (car bounds) (cdr bounds))))
+          (insert (psearch--print-to-string
+                   ;; circumvent lexical binding problem
+                   (funcall `(lambda (its) ,final-pattern)
+                            (reverse its))))
+          (when newline-p
+            ;; add \n for region like following:
+            ;; [(matched)
+            ;; ](other)
+            (insert "\n"))))
       (if (called-interactively-p 'any)
           (message "Replaced %s occurrences" (length points))
         (point)))))

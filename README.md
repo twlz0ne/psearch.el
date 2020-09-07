@@ -48,7 +48,16 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
     ```
 
     or <kbd>M-x</kbd> <code>psearch-replace</code> <kbd>RET</kbd> <code>\`(foo . ,rest)</code> <kbd>RET</kbd> <code>\`(bar ,@rest)</code>.
+    
+    REPLACE-PATTERN also can be a pair:
 
+    ``` elisp
+    (pcase-replace '`(setq ,sym ,val)
+                   '(`(,sym ,val)                    ;; collect only
+                     `(setq ,@(-flattern-n 1 its)))) ;; apply at the end
+    ;; [(setq foo 1)  =>  (setq foo 1
+    ;;  (setq bar 2)]           bar 2)|
+    ```
 
 - **psearch-replace-at-point** _`(match-pattern replace-pattern)`_
 
@@ -58,7 +67,6 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
     |(match a (b c))     =>     |(replace a (b c))
      (match a (b|c))     =>     |(replace a (b c))
     ```
-
 ## Known issue
 
 Since the behaviour of `thing-at-point` has changed since 27 ([`0efb881`](https://emba.gnu.org/emacs/emacs/-/commit/0efb88150df56559e8d649e657902fb51ad43bc1)), the result of the following code will vary depending on the Emacs version:

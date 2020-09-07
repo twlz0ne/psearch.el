@@ -25,6 +25,17 @@
   (transient-mark-mode))
 
 
+;;; polyfill
+
+;; Simulate ‘(-flatten-n 1 list)’
+(defun -flatten-1 (list)
+  (let (lst)
+    (mapcar (lambda (it)
+              (setq lst (append lst it)))
+            list)
+    lst))
+
+
 ;;; utils
 
 (defmacro psearch-test-with-buffer (init &rest body)
@@ -182,6 +193,46 @@
   (bar a b (c 1 2))
   `(bar a b ,(c 1 2)))"))
    (should (= (point) (1- (point-max))))))
+
+(ert-deftest psearch-test-replace-collect ()
+  (psearch-test-with-buffer
+   "\
+(setq aaa 1)
+(setq bbb '(2 3))"
+   (goto-char (point-min))
+   (let ((psearch-pp-print-p nil))
+     (psearch-replace '`(setq ,sym ,val)
+                      '(`(,sym ,val) `(setq ,@(-flatten-1 its))))
+     (should (= (point) (point-max)))
+     (should (string= "(setq aaa 1 bbb '(2 3))"
+                      (string-trim (substring-no-properties (buffer-string)))))))
+  (psearch-test-with-buffer
+   "\
+(setq ccc 1)
+(keep-this)
+(setq ddd '(2 3))"
+   (goto-char (point-min))
+   (let ((psearch-pp-print-p nil)
+         (psearch-delete-collect-replace-region-p nil))
+     (psearch-replace '`(setq ,sym ,val)
+                      '(`(,sym ,val) `(setq ,@(-flatten-1 its))))
+     (should (= (point) (point-max)))
+     (should (string= "(keep-this)\n(setq ccc 1 ddd '(2 3))"
+                      (string-trim (substring-no-properties (buffer-string)))))))
+  (psearch-test-with-buffer
+   "\
+(setq eee 1)
+(delete-this)
+(setq fff '(2 3))"
+   (goto-char (point-min))
+   (let ((psearch-pp-print-p nil)
+         (psearch-delete-collect-replace-region-p t))
+     (psearch-replace '`(setq ,sym ,val)
+                      '(`(,sym ,val) `(setq ,@(-flatten-1 its)))
+                      (point-min) (point-max))
+     (should (= (point) (point-max)))
+     (should (string= "(setq eee 1 fff '(2 3))"
+                      (string-trim (substring-no-properties (buffer-string))))))))
 
 (provide 'psearch-test)
 
