@@ -469,7 +469,7 @@ inside it.  For example:
          (matcher (psearch-make-matcher match-pattern replace-pattern))
          (callback
           (lambda (replacement bounds)
-            (when (< (car bounds) pos (cdr bounds))
+            (when (<= (car bounds) pos (cdr bounds))
               (delete-region (car bounds) (cdr bounds))
               (if splice
                   (let ((pp-start-pos (point)))
@@ -477,10 +477,14 @@ inside it.  For example:
                             (insert (psearch--print-to-string it)))
                           replacement)
                     (when psearch-pp-print-p
-                      (save-restriction
-                        (narrow-to-region pp-start-pos (point))
-                        (pp-buffer))))
-                (psearch--print-to-string replacement))
+                      (save-excursion
+                        (save-restriction
+                          (narrow-to-region pp-start-pos
+                                            (if (eq (char-after (point)) ?\n)
+                                                (1- (point))
+                                              (point)))
+                          (pp-buffer)))))
+                (insert (psearch--print-to-string replacement)))
               t))))
     (when (or (psearch--apply-replacement-at-point matcher callback)
               (psearch-backward-1 matcher callback))
