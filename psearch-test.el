@@ -234,6 +234,23 @@
      (should (string= "(setq eee 1 fff '(2 3))"
                       (string-trim (substring-no-properties (buffer-string))))))))
 
+(ert-deftest psearch-test-replace-splice ()
+  (psearch-test-with-buffer
+   "\
+(setq socks-server '(Default server \"0.0.0.0\" 1080 5)
+      url-gateway-method 'tls)"
+   (goto-char (1+ (point-min)))
+   (let ((psearch-pp-print-p nil))
+     (psearch-replace-at-point '`(setq . ,(and r (guard (> (length r) 2))))
+                               '(mapcar (lambda (pair)
+                                          (cons 'setq pair))
+                                 (seq-partition r 2))
+                               :splice t)
+     (should (string=
+              (concat "(setq socks-server '(Default server \"0.0.0.0\" 1080 5))"
+                      "(setq url-gateway-method 'tls)")
+              (string-trim (substring-no-properties (buffer-string))))))))
+
 (provide 'psearch-test)
 
 ;;; psearch-test.el ends here

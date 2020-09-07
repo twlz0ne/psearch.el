@@ -454,7 +454,9 @@ Examples:
           (message "Replaced %s occurrences" (length points))
         (point)))))
 
-(defun psearch-replace-at-point (match-pattern replace-pattern)
+(cl-defun psearch-replace-at-point (match-pattern replace-pattern
+                                                  &key splice
+                                                  &allow-other-keys)
   "Replace the sexp matching MATCH-PATTERN at point with REPLACE-PATTERN.
 
 Replace only the sexp at point, that is, the point is at the beginning of it or
@@ -463,16 +465,25 @@ inside it.  For example:
         |(match a (b c))    =>     |(replace a (b c))
          (match a (b|c))    =>     |(replace a (b c))"
   (interactive (psearch-replace-args "Query replace at point"))
-  (let ((matcher (psearch-make-matcher match-pattern replace-pattern))
-        (pos (point)))
-    (when (or (psearch--apply-replacement-at-point matcher t)
-              (psearch-backward-1 matcher
-                                  (lambda (replacement bounds)
-                                    (when (< (car bounds) pos (cdr bounds))
-                                      (delete-region (car bounds) (cdr bounds))
-                                      (insert (psearch--print-to-string
-                                               replacement))
-                                      t))))
+  (let* ((pos (point))
+         (matcher (psearch-make-matcher match-pattern replace-pattern))
+         (callback
+          (lambda (replacement bounds)
+            (when (< (car bounds) pos (cdr bounds))
+              (delete-region (car bounds) (cdr bounds))
+              (if splice
+                  (let ((pp-start-pos (point)))
+                    (mapc (lambda (it)
+                            (insert (psearch--print-to-string it)))
+                          replacement)
+                    (when psearch-pp-print-p
+                      (save-restriction
+                        (narrow-to-region pp-start-pos (point))
+                        (pp-buffer))))
+                (psearch--print-to-string replacement))
+              t))))
+    (when (or (psearch--apply-replacement-at-point matcher callback)
+              (psearch-backward-1 matcher callback))
       (if (called-interactively-p 'any)
           (message "Replaced")
         (point)))))
