@@ -29,11 +29,7 @@
 
 ;; Simulate ‘(-flatten-n 1 list)’
 (defun -flatten-1 (list)
-  (let (lst)
-    (mapcar (lambda (it)
-              (setq lst (append lst it)))
-            list)
-    lst))
+  (apply #'append list))
 
 
 ;;; utils
@@ -88,6 +84,19 @@
     (should (string= "(foo ,@(bar 1 2))" (psearch--print-to-string '(foo ,@(bar 1 2)))))
     (should (string= "(foo `,@(,bar 1 2))" (psearch--print-to-string '(foo `,@(,bar 1 2)))))
     ))
+
+(ert-deftest psearch-test-pp-region1 ()
+  (mapc (pcase-lambda (`(,init ,expected))
+          (with-temp-buffer
+            (insert init)
+            (emacs-lisp-mode)
+            (psearch--pp-region1 (point-min) (+ (point-min) 13))
+            (should
+             (string= expected (substring-no-properties (buffer-string))))))
+        '(("((1) (2) (3))"      "((1)\n (2)\n (3))")
+          ("((1) (2) (3))(4)"   "((1)\n (2)\n (3))(4)")
+          ("((1) (2) (3)) (4)"  "((1)\n (2)\n (3)) (4)")
+          ("((1) (2) (3))\n(4)" "((1)\n (2)\n (3))\n(4)"))))
 
 (ert-deftest psearch-test-matcher ()
   (let ((matcher (psearch-make-matcher '`(foo . ,_))))
@@ -234,36 +243,44 @@
      (should (string= "(setq eee 1 fff '(2 3))"
                       (string-trim (substring-no-properties (buffer-string))))))))
 
-(ert-deftest psearch-test-replace-splice ()
-  (let ((psearch-pp-print-p nil))
-    ;; :splice t
-    (psearch-test-with-buffer
-     "\
-(setq socks-server '(Default server \"0.0.0.0\" 1080 5)
-      url-gateway-method 'tls)"
-     (psearch-replace-at-point '`(setq . ,(and r (guard (> (length r) 2))))
-                               '(mapcar (lambda (pair)
-                                          (cons 'setq pair))
-                                 (seq-partition r 2))
-                               :splice t)
-     (should (string=
-              (concat "(setq socks-server '(Default server \"0.0.0.0\" 1080 5))"
-                      "(setq url-gateway-method 'tls)")
-              (string-trim (substring-no-properties (buffer-string))))))
-    ;; :splice nil
-    (psearch-test-with-buffer
-     "\
-(setq socks-server '(Default server \"0.0.0.0\" 1080 5)
-      url-gateway-method 'tls)"
-     (psearch-replace-at-point '`(setq . ,(and r (guard (> (length r) 2))))
-                               '(mapcar (lambda (pair)
-                                          (cons 'setq pair))
-                                 (seq-partition r 2))
-                               :splice nil)
-     (should (string=
-              (concat "((setq socks-server '(Default server \"0.0.0.0\" 1080 5))"
-                      "(setq url-gateway-method 'tls))")
-              (string-trim (substring-no-properties (buffer-string))))))))
+(ert-deftest psearch-test-replace+splice ()
+  (mapc
+   (pcase-lambda (`(,expected ,splice-p ,pp-print-p))
+     (psearch-test-with-buffer
+      "(setq a 1 b 2)\n(setq c 3 d 4)"
+      (let ((psearch-pp-print-p pp-print-p))
+        (psearch-replace '`(setq . ,(and r (guard (> (length r) 2))))
+                         '(mapcar (lambda (pair)
+                                    (cons 'setq pair))
+                           (seq-partition r 2))
+                         nil nil
+                         :splice splice-p)
+        (should (= (point) (point-max)))
+        (should (string= expected (substring-no-properties (buffer-string)))))))
+   '(("(setq a 1)\n(setq b 2)\n(setq c 3)\n(setq d 4)" t t)
+     ("(setq a 1)(setq b 2)\n(setq c 3)(setq d 4)"     t nil)
+     ("((setq a 1)(setq b 2))\n((setq c 3)(setq d 4))" nil nil))))
+
+(ert-deftest psearch-test-replace-at-point+splice ()
+  (mapc
+   (pcase-lambda (`(,expected ,splice-p ,pp-print-p))
+     (psearch-test-with-buffer
+      "(setq a 1 b 2)\n(setq c 3 d 4)"
+      (let ((psearch-pp-print-p pp-print-p))
+        (psearch-replace-at-point '`(setq . ,(and r (guard (> (length r) 2))))
+                                  '(mapcar (lambda (pair)
+                                             (cons 'setq pair))
+                                    (seq-partition r 2))
+                                  :splice splice-p)
+        (should (= (point) (- (point-max) (length "\n(setq c 3 d 4)"))))
+        (should (string= expected (substring-no-properties (buffer-string)))))))
+   '(("(setq a 1)\n(setq b 2)\n(setq c 3 d 4)" t t)
+     ("(setq a 1)(setq b 2)\n(setq c 3 d 4)"   t nil)
+     ("((setq a 1)(setq b 2))\n(setq c 3 d 4)" nil nil))))
+
+ 
+(byte-compile 'test-var)
+(list #1="foo" (concat #1# "bar"))
 
 (provide 'psearch-test)
 

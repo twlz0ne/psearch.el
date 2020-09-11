@@ -12,5 +12,8 @@ emacs_bins=(
 )
 
 for emacs_bin in "${emacs_bins[@]}"; do
-    export EMACS=$emacs_bin; make test $@
+    export EMACS=$emacs_bin; make clean; make test $@
+
 done
+
+make clean
