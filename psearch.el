@@ -142,6 +142,7 @@ CALLBACK can be nil, t or a callback:
          - nil       don't apply
          - callback  apply in callback.  The callback accept replacemanet and
                      bounds, return non-nil if success"
+  (cl-assert (functionp matcher) t "MATCHER must be a function.  Given: %S" matcher)
   (let* ((bounds (let ((bounds (bounds-of-thing-at-point 'sexp)))
                    ;; (bounds-of-thing-at-point)
                    ;; => actual    [`(,foo)]
@@ -415,11 +416,17 @@ RESULT-CALLBACK  a function to handle the result, it accpet two arguments:
 
 MATCH-PATTERN   a pcase pattern to match.
 REPLACE-PATTERN an expression generate replacement for each match with bindings
-                created in MATCH-PATTERN and apply them immediately, or a pair
-                of expressions that the first is used to collect replacement for
-                each matched into local variable ‘its’ instead of appling them 
-                immediately and the second is used to apply all of the collected
-                replacement when the search is done.
+                created in MATCH-PATTERN and apply them immediately:
+
+                (psearch-replace '`MATCH '`REPLACE)
+
+                or a pair of expressions that the first is used to collect the
+                replacement for each matched into local variable ‘its’ instead
+                of appling them immediately. The second is used to apply all of
+                the collected replacement when the search complete:
+
+                (psearch-replace '`MATCH '(`COLLECT `FINAL))
+
 BEG and END     specify the search region, default are (point) and (point-max).
 
 SPLICE          if non-nil, splice the replacement value.
@@ -437,20 +444,21 @@ Examples:
 - replace (collect -> final)
 
    ```
-   (pcase-replace '`(setq ,sym ,val)
-                  '(`(,sym ,val) `(setq ,@(-flattern-n 1 its))))
+   (psearch-replace '`(setq ,sym ,val)
+                    '(`(,sym ,val) `(setq ,@(-flattern-n 1 its))))
    ;; [(setq foo 1)  =>  (setq foo 1
    ;;  (setq bar 2)]           bar 2)|
    ```
 
-- replace (:splice t)
+- replace (splice)
 
    ```
-   (pcase-replace '`(setq ,(rest (guard (> (length rest) 2))))
-                  '(mapcar (lambda (pair)
-                             (cons 'setq pair))
-                    (seq-partition rest 2))
-                  :)
+   (psearch-replace '`(setq . ,(and rest (guard (> (length rest) 2))))
+                    '(mapcar (lambda (pair)
+                               (cons 'setq pair))
+                      (seq-partition rest 2))
+                    nil nil
+                    :splice t)
    ;; |(setq foo 1    =>   (setq foo 1)
    ;;        bar 2)        (setq bar 2)|
    ```"
@@ -521,10 +529,36 @@ Examples:
   "Replace the sexp matching MATCH-PATTERN at point with REPLACE-PATTERN.
 
 Replace only the sexp at point, that is, the point is at the beginning of it or
-inside it.  For example:
+inside it. If SPLICE is non-nil, splice the replacement value.
 
+Unlike ‘psearch-replace’, the REPLACE-PATTERN here does not support (and is note
+necessary) the collect->finle operation. 
+
+Examples:
+
+- point at beginning of sexp
+
+        ```
         |(match a (b c))    =>     |(replace a (b c))
-         (match a (b|c))    =>     |(replace a (b c))"
+        ```
+
+- point in sexp
+
+        ```
+        (match a (b|c))     =>     |(replace a (b c))
+        ```
+
+- splice
+
+        ```
+        (psearch-replace-at-point '`(setq . ,(and rest (guard (> (length rest) 2))))
+                                  '(mapcar (lambda (pair)
+                                             (cons 'setq pair))
+                                    (seq-partition rest 2))
+                                :splice t)
+        ;; |(setq foo 1    =>   (setq foo 1)
+        ;;        bar 2)        (setq bar 2)|
+        ```"
   (interactive (psearch-replace-args "Query replace at point"))
   (let* ((pos (point))
          (matcher (psearch-make-matcher match-pattern replace-pattern))
