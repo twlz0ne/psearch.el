@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/twlz0ne/psearch.el.svg?branch=master)](https://travis-ci.com/twlz0ne/psearch.el)
+[![CI](https://github.com/twlz0ne/psearch.el/workflows/CI/badge.svg)](https://github.com/twlz0ne/psearch.el/actions?query=workflow%3ACI)
 
 # psearch.el
 

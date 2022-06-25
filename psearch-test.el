@@ -18,6 +18,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'ert)
 (require 'psearch)
 
