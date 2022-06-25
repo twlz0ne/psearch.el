@@ -4,7 +4,7 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
 ;; Keywords: tools
@@ -28,10 +28,6 @@
 ;; [el-search](https://elpa.gnu.org/packages/el-search.html), but easier to use.
 
 ;; See README.md for more information.
-
-;;; Change Log:
-
-;;  0.1.0  2020/08/29  Initial version.
 
 ;;; Code:
 
