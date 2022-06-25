@@ -279,9 +279,16 @@
      ("(setq a 1)(setq b 2)\n(setq c 3 d 4)"   t nil)
      ("((setq a 1)(setq b 2))\n(setq c 3 d 4)" nil nil))))
 
- 
-(byte-compile 'test-var)
-(list #1="foo" (concat #1# "bar"))
+(ert-deftest psearch-test-function-patch ()
+  (defun test-patch ()
+    (list '(1 2 3)
+          (if nil '(4 5 6))
+          '(7 8 9)))
+  (should (equal (test-patch) '((1 2 3) nil (7 8 9))))
+  (psearch-with-function-patch test-patch
+    (psearch-replace '`(if nil ,body)
+                     '`(if t ,body)))
+  (should (equal (test-patch) '((1 2 3) (4 5 6) (7 8 9)))))
 
 (provide 'psearch-test)
 

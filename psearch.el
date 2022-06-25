@@ -4,7 +4,9 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
-;; Version: 0.2.0
+;; Version: 0.2.1
+;; Last-Updated: 2022-06-26 00:55:13 +0800
+;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
 ;; Keywords: tools
@@ -35,6 +37,9 @@
 (require 'pcase)
 (require 'subr-x)
 (require 'thingatpt)
+
+(define-error 'psearch-error "Psearch error")
+(define-error 'psearch-patch-failed "Function patch applied failed" 'psearch-error)
 
 (defcustom psearch-pp-print-p t
   "Control whether the results of ‘psearch--print-to-string’ are pretty-printed."
@@ -571,6 +576,51 @@ Examples:
       (if (called-interactively-p 'any)
           (message "Replaced")
         (point)))))
+
+;;;###autoload
+(defmacro psearch-with-function-patch (function &rest patch-form)
+  "Re-eval FUNCTION if PATCH-FORM return non-nil."
+  (declare (indent defun) (debug t))
+  `(let* ((printer nil)
+          (sexp (condition-case err
+                    ;; Find in file
+                    (let ((location
+                           (find-function-noselect ',function 'lisp-only)))
+                      (with-current-buffer (car location)
+                        (setq printer 'princ)
+                        (goto-char (cdr location))
+                        (thing-at-point 'sexp)))
+                  (error
+                   ;; Find uncompiled function
+                   (let ((definition
+                          (if (and (stringp (cadr err))
+                                   (string-prefix-p "Don’t know where" (cadr err)))
+                              (symbol-function ',function))))
+                     ;; NOTE: Some forms will change after evaluating, e.g.:
+                     ;; ```
+                     ;; (with-emacs
+                     ;;   (with-temp-buffer
+                     ;;     (insert "(defun test () (when t '(1 2 3)))")
+                     ;;     (eval-buffer))
+                     ;;   (symbol-function 'test))
+                     ;; => (lambda nil (if t (progn '(1 2 3))))
+                     ;; ```
+                     (if (not definition)
+                         (apply 'signal err)
+                       (if (byte-code-function-p definition)
+                           (signal 'psearch-patch-failed
+                                   (list ',function
+                                         "Can't patch a byte-compiled function"))
+                         (setq printer 'print)
+                         (list 'setf '(symbol-function ',function)
+                               `#',definition))))))))
+     (with-temp-buffer
+       (save-excursion
+         (funcall printer sexp (current-buffer)))
+       (if (progn ,@patch-form)
+           (eval-region (point-min) (point-max))
+         (signal 'psearch-patch-failed
+                 (list ',function "PATCH-FORM not applied"))))))
 
 (provide 'psearch)
 
