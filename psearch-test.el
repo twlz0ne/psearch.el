@@ -204,6 +204,28 @@
   `(bar a b ,(c 1 2)))"))
    (should (= (point) (1- (point-max))))))
 
+(ert-deftest psearch-test-replace-with-nil ()
+  (psearch-test-with-buffer
+   "\
+(foo)
+(foo a)
+(foo a b)
+(unless nil
+  (foo a b (c 1 2))
+  `(foo a b ,(c 1 2)))"
+   (let ((psearch-pp-print-p nil))
+     (psearch-replace '`(foo . ,rest) nil))
+   (should
+    (string= (buffer-substring-no-properties (point-min) (point-max))
+             "\
+
+
+
+(unless nil
+\s\s
+  `)"))
+   (should (= (point) (1- (point-max))))))
+
 (ert-deftest psearch-test-replace-collect ()
   (psearch-test-with-buffer
    "\

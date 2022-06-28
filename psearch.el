@@ -4,8 +4,8 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
-;; Version: 0.2.1
-;; Last-Updated: 2022-06-26 00:55:13 +0800
+;; Version: 0.2.2
+;; Last-Updated: 2022-06-28 14:26:37 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -428,6 +428,8 @@ REPLACE-PATTERN an expression generate replacement for each match with bindings
 
                 (psearch-replace '`MATCH '(`COLLECT `FINAL))
 
+                or `nil' just to delete contents matched by MATCH-PATTERN.
+
 BEG and END     specify the search region, default are (point) and (point-max).
 
 SPLICE          if non-nil, splice the replacement value.
@@ -485,7 +487,11 @@ Examples:
                     (psearch--splice-and-insert result)
                     (setq last-point (point)))
                   'nonmoving)
-              t)))
+              (if (not replace-pattern)
+                  (lambda (_ bounds)
+                    (delete-region (car bounds) (cdr bounds))
+                    'nonmoving)
+                t))))
          (matcher
           (psearch-make-matcher match-pattern
                                 (or collect-pattern replace-pattern)))
@@ -532,7 +538,7 @@ Examples:
 Replace only the sexp at point, that is, the point is at the beginning of it or
 inside it. If SPLICE is non-nil, splice the replacement value.
 
-Unlike ‘psearch-replace’, the REPLACE-PATTERN here does not support (and is note
+Unlike ‘psearch-replace’, the REPLACE-PATTERN here does not support (and is not
 necessary) the collect->finle operation. 
 
 Examples:
@@ -569,7 +575,8 @@ Examples:
               (delete-region (car bounds) (cdr bounds))
               (if splice
                   (psearch--splice-and-insert replacement)
-                (insert (psearch--print-to-string replacement)))
+                (if replace-pattern
+                    (insert (psearch--print-to-string replacement))))
               t))))
     (when (or (psearch--apply-replacement-at-point matcher callback)
               (psearch-backward-1 matcher callback))
