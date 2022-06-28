@@ -90,6 +90,31 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
 
     Unlike ‘psearch-replace’, the `replace-pattern` here does not support (and is not necessary) the `collect->finle` operation. 
 
+- **psearch-with-function-patch** _`(function patch-form)`_
+
+    Re-eval FUNCTION if PATCH-FORM return non-nil.  For example:
+    
+    ``` elisp
+    (psearch-with-function-patch test-patch
+      (psearch-replace '`(if nil ,body)
+                       '`(if t ,body)))
+    ;; (defun test-patch ()         =>    (defun test-patch ()
+    ;;   (list '(1 2 3)                     (list '(1 2 3)
+    ;;         (if nil '(4 5 6))                  (if t '(4 5 6))
+    ;;         '(7 8 9)))                         '(7 8 9)))
+    ```
+    
+    If the `PATCH-FORM` contains multiple statements, make sure each one of them executes successfully:
+    
+    ``` elisp
+    (with-eval-after-load 'corfu-doc-terminal
+      (psearch-with-function-patch corfu-doc-terminal--preprocess-docstring
+        ;; Delete all `(let ...)` form except the first.
+        (let ((pattern '`(let . ,rest)))
+          (and (psearch-forward pattern)
+               (psearch-replace pattern nil)))))
+    ```
+
 ## Known issue
 
 Since the behaviour of `thing-at-point` has changed since 27 ([`0efb881`](https://emba.gnu.org/emacs/emacs/-/commit/0efb88150df56559e8d649e657902fb51ad43bc1)), the result of the following code will vary depending on the Emacs version:
