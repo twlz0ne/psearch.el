@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-06-28 14:26:37 +0800
+;; Last-Updated: 2022-07-05 21:45:21 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -66,6 +66,10 @@ Example:
         [ (matched1) (others)... (matched2) ] => [ (replacement) ]"
   :group 'psearch
   :type 'boolean)
+
+(defvar psearch-patch-function-regexp
+  "\\`(defun[[:space:]]+\\(\\(?:\\sw\\|\\s_\\|\\\\.\\)+\\)"
+  "Regex to match function definition.")
 
 (defun psearch--prin1 (object &optional stream)
   "Print OBJECT on STREAM according to its type."
@@ -586,9 +590,11 @@ Examples:
 
 ;;;###autoload
 (defmacro psearch-with-function-patch (function &rest patch-form)
-  "Re-eval FUNCTION if PATCH-FORM return non-nil."
+  "Patch the FUNCTION if PATCH-FORM return non-nil."
   (declare (indent defun) (debug t))
   `(let* ((printer nil)
+          (adname ,(format "psearch-patch@%s" function))
+          (adsym (intern adname))
           (sexp (condition-case err
                     ;; Find in file
                     (let ((location
@@ -596,7 +602,12 @@ Examples:
                       (with-current-buffer (car location)
                         (setq printer 'princ)
                         (goto-char (cdr location))
-                        (thing-at-point 'sexp)))
+                        (let ((s (thing-at-point 'sexp)))
+                          (if (string-match psearch-patch-function-regexp s)
+                              (replace-match adname 'fixedcase 'literal s 1)
+                            (signal 'psearch-patch-failed
+                                    (list ',function
+                                          "Failt to mutch the function name"))))))
                   (error
                    ;; Find uncompiled function
                    (let ((definition
@@ -619,13 +630,15 @@ Examples:
                                    (list ',function
                                          "Can't patch a byte-compiled function"))
                          (setq printer 'print)
-                         (list 'setf '(symbol-function ',function)
+                         (list 'setf `(symbol-function ',adsym)
                                `#',definition))))))))
      (with-temp-buffer
        (save-excursion
          (funcall printer sexp (current-buffer)))
        (if (progn ,@patch-form)
-           (eval-region (point-min) (point-max))
+           (progn
+             (eval-region (point-min) (point-max))
+             (advice-add ',function :override adsym))
          (signal 'psearch-patch-failed
                  (list ',function "PATCH-FORM not applied"))))))
 
