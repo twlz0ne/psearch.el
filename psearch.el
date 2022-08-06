@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-07-05 21:45:21 +0800
+;; Last-Updated: 2022-07-05 22:00:07 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -665,7 +665,8 @@ Example:
   (let ((adsym (intern (format "psearch-patched@%s" function))))
     `(progn
        (psearch-with-function-create ,adsym ,function ,@patch-form)
-       (advice-add ',function :override ',adsym))))
+       (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
+       (setf (symbol-function ',function) ',adsym))))
 
 (provide 'psearch)
 
