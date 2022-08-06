@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-07-05 21:45:21 +0800
+;; Last-Updated: 2022-07-05 22:00:07 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -632,7 +632,7 @@ NEW-FN     Symbol of the patched function"
                                    (list ',orig-fn
                                          "Can't patch a byte-compiled function"))
                          (setq printer 'print)
-                         (list 'setf `(symbol-function ',adsym)
+                         (list 'setf '(symbol-function ',new-fn)
                                `#',definition))))))))
      (with-temp-buffer
        (save-excursion
@@ -666,7 +666,7 @@ Example:
     `(progn
        (psearch-with-function-create ,adsym ,function ,@patch-form)
        (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
-       (advice-add ',function :override ',adsym))))
+       (setf (symbol-function ',function) ',adsym))))
 
 (provide 'psearch)
 
