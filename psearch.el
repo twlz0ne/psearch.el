@@ -589,31 +589,33 @@ Examples:
         (point)))))
 
 ;;;###autoload
-(defmacro psearch-with-function-patch (function &rest patch-form)
-  "Patch the FUNCTION if PATCH-FORM return non-nil."
-  (declare (indent defun) (debug t))
+(defmacro psearch-with-function-create (new-fn orig-fn &rest patch-form)
+  "Create a patched function when PATCH-FORM return non-nil.
+
+ORIG-FN    Symbol of the original function
+NEW-FN     Symbol of the patched function"
+  (declare (indent 2) (debug t))
   `(let* ((printer nil)
-          (adname ,(format "psearch-patch@%s" function))
-          (adsym (intern adname))
+          (new-name ,(symbol-name new-fn))
           (sexp (condition-case err
                     ;; Find in file
                     (let ((location
-                           (find-function-noselect ',function 'lisp-only)))
+                           (find-function-noselect ',orig-fn 'lisp-only)))
                       (with-current-buffer (car location)
                         (setq printer 'princ)
                         (goto-char (cdr location))
                         (let ((s (thing-at-point 'sexp)))
                           (if (string-match psearch-patch-function-regexp s)
-                              (replace-match adname 'fixedcase 'literal s 1)
+                              (replace-match new-name 'fixedcase 'literal s 1)
                             (signal 'psearch-patch-failed
-                                    (list ',function
+                                    (list ',orig-fn
                                           "Failt to mutch the function name"))))))
                   (error
                    ;; Find uncompiled function
                    (let ((definition
                           (if (and (stringp (cadr err))
                                    (string-prefix-p "Don’t know where" (cadr err)))
-                              (symbol-function ',function))))
+                              (symbol-function ',orig-fn))))
                      ;; NOTE: Some forms will change after evaluating, e.g.:
                      ;; ```
                      ;; (with-emacs
@@ -627,7 +629,7 @@ Examples:
                          (apply 'signal err)
                        (if (byte-code-function-p definition)
                            (signal 'psearch-patch-failed
-                                   (list ',function
+                                   (list ',orig-fn
                                          "Can't patch a byte-compiled function"))
                          (setq printer 'print)
                          (list 'setf `(symbol-function ',adsym)
@@ -636,11 +638,35 @@ Examples:
        (save-excursion
          (funcall printer sexp (current-buffer)))
        (if (progn ,@patch-form)
-           (progn
+           (prog1 ',new-fn
              (eval-region (point-min) (point-max))
-             (advice-add ',function :override adsym))
+             (put ',new-fn 'function-documentation
+                  (format "This is a patched version of `%s'." ',orig-fn)))
          (signal 'psearch-patch-failed
-                 (list ',function "PATCH-FORM not applied"))))))
+                 (list ',orig-fn "PATCH-FORM not applied"))))))
+
+;;;###autoload
+(defmacro psearch-with-function-patch (function &rest patch-form)
+  "Patch the FUNCTION if PATCH-FORM return non-nil.
+
+Example:
+
+   ;; Patch the function `orig-fun':
+   (psearch-with-function-patch orig-fun
+     (psearch-replace match-pattern
+                      replace-pattern))
+
+   ;; Equivalent to:
+   (psearch-with-function-create psearch-patched@orig-fun orig-fun
+     (psearch-replace match-pattern
+                      replace-pattern))
+   (advice-add \\='orig-fun :override #\\='psearch-patched@orig-fun)"
+  (declare (indent defun) (debug t))
+  (let ((adsym (intern (format "psearch-patched@%s" function))))
+    `(progn
+       (psearch-with-function-create ,adsym ,function ,@patch-form)
+       (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
+       (advice-add ',function :override ',adsym))))
 
 (provide 'psearch)
 
