@@ -1,0 +1,73 @@
+#!/bin/sh
+# Last-Updated: 2022-12-10 12:17:36 +0800
+#           By: Gong Qijian
+
+usage () {
+    local app=$(basename $0)
+    cat<<EOF
+Usage:
+  ${0##*/} PATTERN LOCATION
+
+Example:
+  | $ ./cli/psearch '(if (and . ,_) . ,_)' .
+  | ==> File ‘~/.repos/emacs-psearch/psearch-test.el’
+  | ==> File ‘~/.repos/emacs-psearch/psearch.el’
+  | #L517-L520:
+  |           (if (and psearch-delete-collect-replace-region-p beg end)
+  |               (delete-region beg end)
+  |             (dolist (bounds collected-bounds)
+  |               (delete-region (car bounds) (cdr bounds))))
+  | #L614-L616:
+  |                           (if (and (stringp (cadr err))
+  |                                    (string-prefix-p "Don’t know where" (cadr err)))
+                                (symbol-function ',function))))
+EOF
+}
+
+if [[ $# -lt 2 ]]; then
+    usage
+    exit 1
+fi
+
+files=$(find $(cd $2; pwd) -name "*.el")
+
+read -r -d '' expr <<__ELISP__
+(mapc
+ (lambda (file)
+   (when (and file (not (string-empty-p file)))
+     (princ (format "==> File ‘%s’" file) #'external-debugging-output)
+     (if (not (file-exists-p file))
+         (princ (format " not existed!\n") #'external-debugging-output)
+       (with-current-buffer (find-file-noselect file)
+         (goto-char (point-min))
+         (while (psearch-forward
+                 '\`$1 nil
+                 (pcase-lambda (_ bound)
+                   (pcase-let* ((\`(,beg-pos . ,end-pos) bound)
+                                (\`(,line-beg ,line-end)
+                                 (list (line-number-at-pos beg-pos)
+                                       (line-number-at-pos end-pos)))
+                                (\`(,line-beg-pos ,line-end-pos)
+                                 (list (save-excursion
+                                         (goto-char beg-pos)
+                                         (line-beginning-position))
+                                       (save-excursion
+                                         (goto-char end-pos)
+                                         (line-end-position)))))
+                     (princ (format "\n#L%s-L%s:\n" line-beg line-end)
+                            #'external-debugging-output)
+                     (princ (concat (buffer-substring line-beg-pos beg-pos)
+                                    "\\e[31m"
+                                    (buffer-substring beg-pos end-pos)
+                                    "\\e[0m"
+                                    (buffer-substring end-pos line-end-pos))
+                            #'external-debugging-output))))
+           (princ "\n" #'external-debugging-output)))
+       (princ "\n" #'external-debugging-output))))
+ (split-string "${files}" "\n"))
+__ELISP__
+
+cd $(dirname $0)
+${EMACS:-emacs} -Q --batch -l ../psearch.el --eval "${expr}"
+
+# psearch ends here
