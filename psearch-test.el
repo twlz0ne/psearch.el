@@ -312,6 +312,30 @@
                      '`(if t ,body)))
   (should (equal (test-patch) '((1 2 3) (4 5 6) (7 8 9)))))
 
+(ert-deftest psearch-test-macro-patch ()
+  (defmacro greet (x) `(message "hello, %s!" ,x))
+  (should (equal (symbol-function 'greet)
+                 '(macro closure (t) (x) (list 'message "hello, %s!" x))))
+  (psearch-with-function-patch greet
+    (psearch-replace '`(list 'message ,fmt ,x)
+                     '`(list 'message "hi, %s!" ,x)))
+  (should (equal (greet "world") "hi, world!"))
+  ;; (print (symbol-function 'psearch-patched@greet))
+
+  ;; (let ((file (make-temp-file "test-psearch-patch--")))
+  ;;   (with-temp-file file
+  ;;     (emacs-lisp-mode)
+  ;;     (insert "(defmacro greet (x) `(message \"hello, %s!\" ,x))"))
+  ;;   (load file)
+  ;;   (print (symbol-function 'greet))
+  ;;   )
+  ;; (macro lambda (x) (list 'message "hello, %s!" x))
+  )
+
+;; (with-emacs
+;;   (defmacro greet (x) `(message "hello, %s!" ,x))
+;;   (symbol-function 'greet))
+
 (provide 'psearch-test)
 
 ;;; psearch-test.el ends here

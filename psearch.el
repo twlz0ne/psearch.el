@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-07-05 22:00:07 +0800
+;; Last-Updated: 2022-08-09 16:27:18 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -68,7 +68,10 @@ Example:
   :type 'boolean)
 
 (defvar psearch-patch-function-regexp
-  "\\`(defun[[:space:]]+\\(\\(?:\\sw\\|\\s_\\|\\\\.\\)+\\)"
+  (eval-when-compile
+    (rx (seq bos "(" (or "defun" "cl-defun" "defmacro" "cl-defmacro")
+             (one-or-more space)
+             (group (one-or-more (or (syntax word) (syntax symbol) (seq "\\" nonl)))))))
   "Regex to match function definition.")
 
 (defun psearch--prin1 (object &optional stream)
@@ -588,6 +591,31 @@ Examples:
           (message "Replaced")
         (point)))))
 
+;; (defun psearch--advice-find-function-library (orig-fn function &rest args)
+;;   "Advice around `find-function-library'."
+;;   (let ((return (apply orig-fn function args)))
+;;     (if (cdr return)
+;;         (prog1 return
+;;           (put function 'functin-library return))
+;;       (or (get function 'functin-library)
+;;           return))))
+
+;; (advice-add 'find-function-library :around 'psearch--advice-find-function-library)
+
+;; (defun psearch-unload-function ()
+;;   "Unload psearch library."
+;;   (advice-remove 'find-function-library 'psearch--advice-find-function-library))
+
+(defun psearch--find-function-library (function)
+  "Return the pair (ORIG-FUNCTION . LIBRARY) for FUNCTION."
+  (pcase-let* ((`(,_real-function ,def ,aliased ,real-def)
+                (help-fns--analyze-function function))
+               (file-name
+                (find-lisp-object-file-name function (if aliased 'defun def))))
+    (when file-name
+      (find-function-search-for-symbol
+       function nil file-name))))
+
 ;;;###autoload
 (defmacro psearch-with-function-create (new-fn orig-fn &rest patch-form)
   "Create a patched function when PATCH-FORM return non-nil.
@@ -600,7 +628,14 @@ NEW-FN     Symbol of the patched function"
           (sexp (condition-case err
                     ;; Find in file
                     (let ((location
-                           (find-function-noselect ',orig-fn 'lisp-only)))
+                           (pcase-let*
+                               ((`(,_real-function ,def ,aliased ,real-def)
+                                 (help-fns--analyze-function ',orig-fn))
+                                (file-name (find-lisp-object-file-name
+                                            ',orig-fn (if aliased 'defun def))))
+                             (when file-name
+                               (find-function-search-for-symbol
+                                ',orig-fn nil file-name)))))
                       (with-current-buffer (car location)
                         (setq printer 'princ)
                         (goto-char (cdr location))
@@ -637,6 +672,7 @@ NEW-FN     Symbol of the patched function"
      (with-temp-buffer
        (save-excursion
          (funcall printer sexp (current-buffer)))
+       (print (buffer-string))
        (if (progn ,@patch-form)
            (prog1 ',new-fn
              (eval-region (point-min) (point-max))
