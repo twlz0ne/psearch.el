@@ -4,7 +4,9 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
-;; Version: 0.2.0
+;; Version: 0.2.2
+;; Last-Updated: 2022-07-05 21:45:21 +0800
+;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
 ;; Keywords: tools
@@ -36,6 +38,9 @@
 (require 'subr-x)
 (require 'thingatpt)
 
+(define-error 'psearch-error "Psearch error")
+(define-error 'psearch-patch-failed "Function patch applied failed" 'psearch-error)
+
 (defcustom psearch-pp-print-p t
   "Control whether the results of ‘psearch--print-to-string’ are pretty-printed."
   :group 'psearch
@@ -61,6 +66,10 @@ Example:
         [ (matched1) (others)... (matched2) ] => [ (replacement) ]"
   :group 'psearch
   :type 'boolean)
+
+(defvar psearch-patch-function-regexp
+  "\\`(defun[[:space:]]+\\(\\(?:\\sw\\|\\s_\\|\\\\.\\)+\\)"
+  "Regex to match function definition.")
 
 (defun psearch--prin1 (object &optional stream)
   "Print OBJECT on STREAM according to its type."
@@ -423,6 +432,8 @@ REPLACE-PATTERN an expression generate replacement for each match with bindings
 
                 (psearch-replace '`MATCH '(`COLLECT `FINAL))
 
+                or `nil' just to delete contents matched by MATCH-PATTERN.
+
 BEG and END     specify the search region, default are (point) and (point-max).
 
 SPLICE          if non-nil, splice the replacement value.
@@ -480,7 +491,11 @@ Examples:
                     (psearch--splice-and-insert result)
                     (setq last-point (point)))
                   'nonmoving)
-              t)))
+              (if (not replace-pattern)
+                  (lambda (_ bounds)
+                    (delete-region (car bounds) (cdr bounds))
+                    'nonmoving)
+                t))))
          (matcher
           (psearch-make-matcher match-pattern
                                 (or collect-pattern replace-pattern)))
@@ -527,7 +542,7 @@ Examples:
 Replace only the sexp at point, that is, the point is at the beginning of it or
 inside it. If SPLICE is non-nil, splice the replacement value.
 
-Unlike ‘psearch-replace’, the REPLACE-PATTERN here does not support (and is note
+Unlike ‘psearch-replace’, the REPLACE-PATTERN here does not support (and is not
 necessary) the collect->finle operation. 
 
 Examples:
@@ -564,13 +579,94 @@ Examples:
               (delete-region (car bounds) (cdr bounds))
               (if splice
                   (psearch--splice-and-insert replacement)
-                (insert (psearch--print-to-string replacement)))
+                (if replace-pattern
+                    (insert (psearch--print-to-string replacement))))
               t))))
     (when (or (psearch--apply-replacement-at-point matcher callback)
               (psearch-backward-1 matcher callback))
       (if (called-interactively-p 'any)
           (message "Replaced")
         (point)))))
+
+;;;###autoload
+(defmacro psearch-with-function-create (new-fn orig-fn &rest patch-form)
+  "Create a patched function when PATCH-FORM return non-nil.
+
+ORIG-FN    Symbol of the original function
+NEW-FN     Symbol of the patched function"
+  (declare (indent 2) (debug t))
+  `(let* ((printer nil)
+          (new-name ,(symbol-name new-fn))
+          (sexp (condition-case err
+                    ;; Find in file
+                    (let ((location
+                           (find-function-noselect ',orig-fn 'lisp-only)))
+                      (with-current-buffer (car location)
+                        (setq printer 'princ)
+                        (goto-char (cdr location))
+                        (let ((s (thing-at-point 'sexp)))
+                          (if (string-match psearch-patch-function-regexp s)
+                              (replace-match new-name 'fixedcase 'literal s 1)
+                            (signal 'psearch-patch-failed
+                                    (list ',orig-fn
+                                          "Failt to mutch the function name"))))))
+                  (error
+                   ;; Find uncompiled function
+                   (let ((definition
+                          (if (and (stringp (cadr err))
+                                   (string-prefix-p "Don’t know where" (cadr err)))
+                              (symbol-function ',orig-fn))))
+                     ;; NOTE: Some forms will change after evaluating, e.g.:
+                     ;; ```
+                     ;; (with-emacs
+                     ;;   (with-temp-buffer
+                     ;;     (insert "(defun test () (when t '(1 2 3)))")
+                     ;;     (eval-buffer))
+                     ;;   (symbol-function 'test))
+                     ;; => (lambda nil (if t (progn '(1 2 3))))
+                     ;; ```
+                     (if (not definition)
+                         (apply 'signal err)
+                       (if (byte-code-function-p definition)
+                           (signal 'psearch-patch-failed
+                                   (list ',orig-fn
+                                         "Can't patch a byte-compiled function"))
+                         (setq printer 'print)
+                         (list 'setf `(symbol-function ',adsym)
+                               `#',definition))))))))
+     (with-temp-buffer
+       (save-excursion
+         (funcall printer sexp (current-buffer)))
+       (if (progn ,@patch-form)
+           (prog1 ',new-fn
+             (eval-region (point-min) (point-max))
+             (put ',new-fn 'function-documentation
+                  (format "This is a patched version of `%s'." ',orig-fn)))
+         (signal 'psearch-patch-failed
+                 (list ',orig-fn "PATCH-FORM not applied"))))))
+
+;;;###autoload
+(defmacro psearch-with-function-patch (function &rest patch-form)
+  "Patch the FUNCTION if PATCH-FORM return non-nil.
+
+Example:
+
+   ;; Patch the function `orig-fun':
+   (psearch-with-function-patch orig-fun
+     (psearch-replace match-pattern
+                      replace-pattern))
+
+   ;; Equivalent to:
+   (psearch-with-function-create psearch-patched@orig-fun orig-fun
+     (psearch-replace match-pattern
+                      replace-pattern))
+   (advice-add \\='orig-fun :override #\\='psearch-patched@orig-fun)"
+  (declare (indent defun) (debug t))
+  (let ((adsym (intern (format "psearch-patched@%s" function))))
+    `(progn
+       (psearch-with-function-create ,adsym ,function ,@patch-form)
+       (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
+       (advice-add ',function :override ',adsym))))
 
 (provide 'psearch)
 
