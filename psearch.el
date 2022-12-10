@@ -632,7 +632,7 @@ NEW-FN     Symbol of the patched function"
                                    (list ',orig-fn
                                          "Can't patch a byte-compiled function"))
                          (setq printer 'print)
-                         (list 'setf `(symbol-function ',adsym)
+                         (list 'setf '(symbol-function ',new-fn)
                                `#',definition))))))))
      (with-temp-buffer
        (save-excursion
@@ -665,7 +665,6 @@ Example:
   (let ((adsym (intern (format "psearch-patched@%s" function))))
     `(progn
        (psearch-with-function-create ,adsym ,function ,@patch-form)
-       (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
        (advice-add ',function :override ',adsym))))
 
 (provide 'psearch)
