@@ -22,6 +22,8 @@
 (require 'ert)
 (require 'psearch)
 
+;; (setq ert-batch-backtrace-right-margin nil)
+;; (setq ert-batch-print-level 20)
 (when noninteractive
   (transient-mark-mode))
 
@@ -301,16 +303,307 @@
      ("(setq a 1)(setq b 2)\n(setq c 3 d 4)"   t nil)
      ("((setq a 1)(setq b 2))\n(setq c 3 d 4)" nil nil))))
 
+;;; psearch-patch
+
+(ert-deftest psearch-test-ensure-symbol-function-and-library ()
+  "Ensure symbol function/library the patch based on."
+  (defun syml-lib-test-1 () "Docstring." 1 2 3)
+  (should (equal (symbol-function #'syml-lib-test-1)
+                 '(closure (t) nil "Docstring." 1 2 3)))
+
+  (eval '(defun syml-lib-test-2 () "Docstring." 1 2 3))
+  (should (equal (symbol-function #'syml-lib-test-2)
+                 '(lambda nil "Docstring." 1 2 3)))
+
+  (byte-compile (defun syml-lib-test-3 () "Docstring." 1 2 3))
+  (should (byte-code-function-p
+           (symbol-function #'syml-lib-test-3))))
+
+(ert-deftest psearch-test-ensure-generic-symbol-function-and-library ()
+  "Ensure generic symbol function/library the patch based on."
+  (require 'cl-generic)
+
+  ;; Define directly
+  (cl-defgeneric sym-lib-test-1 (tag) "Interface." nil)
+  (cl-defmethod sym-lib-test-1 ((tag (eql foo))) "Implement." 1 2 3)
+  (cl-defmethod sym-lib-test-1 :before ((tag (eql foo))) "Before Implement." 4)
+  (should
+   (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-1)))
+          '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before Implement." (progn 4)))
+            (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
+            (cl--generic-method (t) nil (closure (t) (tag) (progn nil))))))
+
+  ;; Eval
+  (eval '(cl-defgeneric sym-lib-test-2 (tag) "Interface." nil))
+  (eval '(cl-defmethod sym-lib-test-2 ((tag (eql foo))) "Implement." 1 2 3))
+  (eval '(cl-defmethod sym-lib-test-2 :before ((tag (eql foo))) "Before Implement." 4))
+  (should
+   (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-2)))
+          '((cl--generic-method ((eql foo)) (:before) (lambda (tag) "Before Implement." (progn 4)))
+            (cl--generic-method ((eql foo)) nil (lambda (tag) "Implement." (progn (progn 1 2 3))))
+            (cl--generic-method (t) nil (lambda (tag) (progn nil))))))
+
+  ;; Compiled
+  (byte-compile (cl-defgeneric sym-lib-test-3 (tag) "Interface." nil))
+  (byte-compile (cl-defmethod sym-lib-test-3 ((tag (eql foo))) "Implement." 1 2 3))
+  (byte-compile (cl-defmethod sym-lib-test-3 :before ((tag (eql foo))) "Before implement." 4))
+  (should
+   (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-3)))
+          '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before implement." (progn 4)))
+            (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
+            (cl--generic-method (t) nil (closure (t) (tag) (progn nil)))))))
+
+(defun psearch-test--find-patched-function (func-spec)
+  (let* ((func-spec (if (symbolp func-spec) (list 'defun func-spec) func-spec))
+         (def-type (pop func-spec))
+         (function (pop func-spec)))
+    (pcase-exhaustive def-type
+      ('defun
+          (let ((func-lib (find-function-library function 'lisp-only t)))
+            (psearch-patch--symbol-function-def function)))
+      ('cl-defgeneric
+          (let ((func-lib (find-function-library function 'lisp-only t)))
+            (when-let ((cl-method (psearch-patch--find-cl-generic-method
+                                   function (list function nil t))))
+              (pcase-let ((`(,extra ,qualifier ,specializer ,spec-rest)
+                           (psearch-patch--cl-generic-args func-spec)))
+                (psearch-patch--cl-generic-function-def
+                 def-type function extra qualifier specializer cl-method)))))
+      ('cl-defmethod
+        (pcase-let* ((`(,extra ,qualifier ,specializer ,spec-rest)
+                      (psearch-patch--cl-generic-args func-spec))
+                     (met-name
+                      (psearch-patch--met-name function qualifier specializer)))
+          (let ((cl-method (psearch-patch--find-cl-generic-method
+                            function met-name)))
+            (when cl-method
+              (psearch-patch--cl-generic-function-def
+               def-type function extra qualifier specializer cl-method))))))))
+
+(defun psearch-test--cl-method-to-list (cl-method)
+  ;; Convert #s(cl--generic-method SPECIALIZERS QUALIFIERS FUNCTION)
+  ;; To       '(cl--generic-method SPECIALIZERS QUALIFIERS FUNCTION)
+  (list
+   'cl--generic-method
+   (cl--generic-method-specializers cl-method)
+   (cl--generic-method-qualifiers cl-method)
+   (cl--generic-method-function cl-method)))
+
 (ert-deftest psearch-test-function-patch ()
-  (defun test-patch ()
+  (defun func ()
+    "Docstring."
     (list '(1 2 3)
           (if nil '(4 5 6))
           '(7 8 9)))
-  (should (equal (test-patch) '((1 2 3) nil (7 8 9))))
-  (psearch-with-function-patch test-patch
+
+  (should
+   (equal
+    (psearch-patch--find-function 'func)
+    '(defun func nil "Docstring." (list '(1 2 3) (if nil '(4 5 6)) '(7 8 9)))))
+  (should (equal (func) '((1 2 3) nil (7 8 9))))
+
+  (psearch-patch func
     (psearch-replace '`(if nil ,body)
                      '`(if t ,body)))
-  (should (equal (test-patch) '((1 2 3) (4 5 6) (7 8 9)))))
+  (should
+   (equal
+    (psearch-test--find-patched-function 'func)
+    '(defun func nil "[PATCHED]Docstring."
+            (list '(1 2 3) (if t '(4 5 6)) '(7 8 9)))))
+  (should (equal (func) '((1 2 3) (4 5 6) (7 8 9))))
+
+  ;;;
+
+  (require 'cl-lib)
+  (cl-defun cl-func (arg &key foo bar)
+    "Docstring."
+    (list arg (if nil foo) bar))
+  (should (equal (cl-func '(1 2 3) :foo '(4 5 6) :bar '(7 8 9))
+                 '((1 2 3) nil (7 8 9))))
+  (psearch-patch cl-func
+    (psearch-replace '`(if nil ,body)
+                     '`(if t ,body)))
+  (should (equal (cl-func '(1 2 3) :foo '(4 5 6) :bar '(7 8 9))
+                 '((1 2 3) (4 5 6) (7 8 9)))))
+
+(ert-deftest psearch-test-cl-function-patch-1 ()
+  (let ((generic-def '(cl-defgeneric cl-test-1 (tag) "Docstring." nil))
+        (method-def '(cl-defmethod cl-test-1 ((tag (eql foo)))
+                       "Docstring."
+                       (list '(1 2 3)
+                             (if nil '(4 5 6))
+                             '(7 8 9))))
+        (generic-assert '(cl-defgeneric cl-test-1 (tag)
+                           "[PATCHED]Docstring." (progn "No implement.")))
+        (method-assert '(cl-defmethod cl-test-1 ((tag (eql foo)))
+                          "[PATCHED]Docstring."
+                          (progn
+                            (progn
+                              (list '(1 2 3)
+                                    (if t '(4 5 6))
+                                    '(7 8 9)))))))
+    (with-temp-buffer
+      (insert "(require 'cl-generic)\n")
+      (insert (format "%S\n" generic-def))
+      (insert (format "%S\n" method-def))
+      (emacs-lisp-mode)
+      (eval-buffer))
+
+    ;; Assert unpatched function
+    (should (equal '(cl-defgeneric cl-test-1 (tag) "Docstring." (progn nil))
+                   (psearch-test--find-patched-function
+                    '(cl-defgeneric cl-test-1 (tag)))))
+    (should (equal '(cl-defmethod cl-test-1 ((tag (eql foo)))
+                      "Docstring."
+                      (progn
+                        (list '(1 2 3)
+                              (if nil '(4 5 6))
+                              '(7 8 9))))
+                   (psearch-patch--find-function
+                    '(cl-defmethod cl-test-1 ((tag (eql foo)))))))
+    (should (equal (cl-test-1 'foo) '((1 2 3) nil (7 8 9))))
+    (should (equal (cl-test-1 'bar) nil))
+
+    ;; Patch functions
+    (psearch-patch
+        (cl-defmethod cl-test-1 ((tag (eql foo))))
+      (psearch-replace '`(if nil ,body)
+                       '`(if t ,body)))
+    (psearch-patch
+        (cl-defgeneric cl-test-1 (tag))
+      (psearch-forward '`(tag))
+      (forward-sexp 2)
+      (let ((bound (bounds-of-thing-at-point 'sexp)))
+        (delete-and-extract-region (car bound) (cdr bound))
+        (insert (format "%S" "No implement."))))
+
+    ;; Asset patch functions
+    (should (equal generic-assert
+                   (psearch-patch--find-function
+                    '(cl-defgeneric cl-test-1 (tag)))))
+    (should (equal method-assert
+                   (psearch-test--find-patched-function
+                    '(cl-defmethod cl-test-1 ((tag (eql foo)))))))
+    (should (equal (cl-test-1 'foo) '((1 2 3) (4 5 6) (7 8 9))))
+    (should (equal (cl-test-1 'bar) "No implement."))))
+
+(ert-deftest psearch-test-cl-function-patch-2 ()
+  (require 'cl-generic)
+
+  (cl-defgeneric cl-test-2 (tag) "Docstring." nil)
+  (cl-defmethod cl-test-2 ((tag (eql foo)))
+    "Docstring."
+    (list '(1 2 3)
+          (if nil '(4 5 6))
+          '(7 8 9)))
+
+  (let ((orignal-generic '(cl-defgeneric cl-test-2 (tag)
+                            "Docstring." (progn nil)))
+        (orignal-method1 '(cl-defmethod cl-test-2 ((tag (eql foo)))
+                            "Docstring."
+                            (progn
+                              (list '(1 2 3)
+                                    (if nil '(4 5 6))
+                                    '(7 8 9)))))
+        (patched-generic '(cl-defgeneric cl-test-2 (tag)
+                            "[PATCHED]Docstring." (progn "No implement.")))
+        (patched-method1 '(cl-defmethod cl-test-2 ((tag (eql foo)))
+                            "[PATCHED]Docstring."
+                            (progn
+                              (progn
+                                (list '(1 2 3)
+                                      (if t '(4 5 6))
+                                      '(7 8 9)))))))
+
+    ;; Assert unpatched function
+    (should (equal orignal-generic
+                   (psearch-patch--find-function
+                    '(cl-defgeneric cl-test-2 (tag)))))
+    (should (equal orignal-method1
+                   (psearch-patch--find-function
+                    '(cl-defmethod cl-test-2 ((tag (eql foo)))))))
+    (should (equal (cl-test-2 'foo) '((1 2 3) nil (7 8 9))))
+    (should (equal (cl-test-2 'bar) nil))
+
+    ;; Patch functions
+    (psearch-patch
+        (cl-defmethod cl-test-2 ((tag (eql foo))))
+      (psearch-replace '`(if nil ,body)
+                       '`(if t ,body)))
+    (psearch-patch
+        (cl-defgeneric cl-test-2 (tag))
+      (psearch-forward '`(tag))
+      (forward-sexp 2)
+      (let ((bound (bounds-of-thing-at-point 'sexp)))
+        (delete-and-extract-region (car bound) (cdr bound))
+        (insert (format "%S" "No implement."))))
+
+    ;; Asset patch functions
+    (should (equal patched-generic
+                   (psearch-patch--find-function
+                    '(cl-defgeneric cl-test-2 (tag)))))
+    (should (equal patched-method1
+                   (psearch-test--find-patched-function
+                    '(cl-defmethod cl-test-2 ((tag (eql foo)))))))
+    (should (equal (cl-test-2 'foo) '((1 2 3) (4 5 6) (7 8 9))))
+    (should (equal (cl-test-2 'bar) "No implement."))))
+
+(ert-deftest psearch-test-cl-function-patch-3 ()
+  (let ((file (make-temp-file "test-psearch-cl-function-"))
+        (generic-def '(cl-defgeneric cl-test-3 (tag) "Docstring." nil))
+        (method-def '(cl-defmethod cl-test-3 ((tag (eql foo)))
+                       "Docstring."
+                       (list '(1 2 3)
+                             (if nil '(4 5 6))
+                             '(7 8 9))))
+        (generic-assert '(cl-defgeneric cl-test-3 (tag)
+                           "[PATCHED]Docstring." (progn "No implement.")))
+        (method-assert '(cl-defmethod cl-test-3 ((tag (eql foo)))
+                          "[PATCHED]Docstring."
+                          (progn
+                            (list '(1 2 3)
+                                  (if t '(4 5 6))
+                                  '(7 8 9))))))
+
+    (with-temp-file file
+      (insert "(require 'cl-generic)\n")
+      (insert (format "%S\n" generic-def))
+      (insert (format "%S\n" method-def)))
+    (byte-compile-file file)
+    (load-file file)
+
+    ;; Assert unpatched function
+    (should (equal generic-def
+                   (psearch-patch--find-function
+                    '(cl-defgeneric cl-test-3 (tag)))))
+    (should (equal method-def
+                   (psearch-patch--find-function
+                    '(cl-defmethod cl-test-3 ((tag (eql foo)))))))
+    (should (equal (cl-test-3 'foo) '((1 2 3) nil (7 8 9))))
+    (should (equal (cl-test-3 'bar) nil))
+
+    ;; Patch functions
+    (psearch-patch
+     (cl-defmethod cl-test-3 ((tag (eql foo))))
+     (psearch-replace '`(if nil ,body)
+                      '`(if t ,body)))
+    (psearch-patch
+     (cl-defgeneric cl-test-3 (tag))
+     (psearch-forward '`(tag))
+     (forward-sexp 2)
+     (let ((bound (bounds-of-thing-at-point 'sexp)))
+       (delete-and-extract-region (car bound) (cdr bound))
+       (insert (format "%S" "No implement."))))
+
+    ;; Asset patch functions
+    (should (equal generic-assert
+                   (psearch-patch--find-function
+                    '(cl-defgeneric cl-test-3 (tag)))))
+    (should (equal method-assert
+                   (psearch-test--find-patched-function
+                    '(cl-defmethod cl-test-3 ((tag (eql foo)))))))
+    (should (equal (cl-test-3 'foo) '((1 2 3) (4 5 6) (7 8 9))))
+    (should (equal (cl-test-3 'bar) "No implement."))))
 
 (provide 'psearch-test)
 

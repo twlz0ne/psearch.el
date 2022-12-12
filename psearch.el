@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-07-05 22:00:07 +0800
+;; Last-Updated: 2022-12-12 10:32:09 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -37,6 +37,8 @@
 (require 'pcase)
 (require 'subr-x)
 (require 'thingatpt)
+(require 'cl-generic)
+(require 'find-func)
 
 (define-error 'psearch-error "Psearch error")
 (define-error 'psearch-patch-failed "Function patch applied failed" 'psearch-error)
@@ -68,7 +70,13 @@ Example:
   :type 'boolean)
 
 (defvar psearch-patch-function-regexp
-  "\\`(defun[[:space:]]+\\(\\(?:\\sw\\|\\s_\\|\\\\.\\)+\\)"
+  ;; (xr "\\`(defun[[:space:]]+\\(\\(?:\\sw\\|\\s_\\|\\\\.\\)+\\)")
+  (rx (seq bos
+           "(" (or "defun" "cl-defgeneric" "cl-defmethod")
+           (1+ space)
+           (group (1+ (or (syntax word)
+                          (syntax symbol)
+                          (seq "\\" nonl))))))
   "Regex to match function definition.")
 
 (defun psearch--prin1 (object &optional stream)
@@ -534,6 +542,7 @@ Examples:
           (message "Replaced %s occurrences" (length points))
         (point)))))
 
+;;;###autoload
 (cl-defun psearch-replace-at-point (match-pattern replace-pattern
                                                   &key splice
                                                   &allow-other-keys)
@@ -588,85 +597,165 @@ Examples:
           (message "Replaced")
         (point)))))
 
-;;;###autoload
-(defmacro psearch-with-function-create (new-fn orig-fn &rest patch-form)
-  "Create a patched function when PATCH-FORM return non-nil.
+;;; Patch functions
 
-ORIG-FN    Symbol of the original function
-NEW-FN     Symbol of the patched function"
-  (declare (indent 2) (debug t))
-  `(let* ((printer nil)
-          (new-name ,(symbol-name new-fn))
-          (sexp (condition-case err
-                    ;; Find in file
-                    (let ((location
-                           (find-function-noselect ',orig-fn 'lisp-only)))
-                      (with-current-buffer (car location)
-                        (setq printer 'princ)
-                        (goto-char (cdr location))
-                        (let ((s (thing-at-point 'sexp)))
-                          (if (string-match psearch-patch-function-regexp s)
-                              (replace-match new-name 'fixedcase 'literal s 1)
-                            (signal 'psearch-patch-failed
-                                    (list ',orig-fn
-                                          "Failt to mutch the function name"))))))
-                  (error
-                   ;; Find uncompiled function
-                   (let ((definition
-                          (if (and (stringp (cadr err))
-                                   (string-prefix-p "Don’t know where" (cadr err)))
-                              (symbol-function ',orig-fn))))
-                     ;; NOTE: Some forms will change after evaluating, e.g.:
-                     ;; ```
-                     ;; (with-emacs
-                     ;;   (with-temp-buffer
-                     ;;     (insert "(defun test () (when t '(1 2 3)))")
-                     ;;     (eval-buffer))
-                     ;;   (symbol-function 'test))
-                     ;; => (lambda nil (if t (progn '(1 2 3))))
-                     ;; ```
-                     (if (not definition)
-                         (apply 'signal err)
-                       (if (byte-code-function-p definition)
-                           (signal 'psearch-patch-failed
-                                   (list ',orig-fn
-                                         "Can't patch a byte-compiled function"))
-                         (setq printer 'print)
-                         (list 'setf '(symbol-function ',new-fn)
-                               `#',definition))))))))
-     (with-temp-buffer
-       (save-excursion
-         (funcall printer sexp (current-buffer)))
-       (if (progn ,@patch-form)
-           (prog1 ',new-fn
-             (eval-region (point-min) (point-max))
-             (put ',new-fn 'function-documentation
-                  (format "This is a patched version of `%s'." ',orig-fn)))
-         (signal 'psearch-patch-failed
-                 (list ',orig-fn "PATCH-FORM not applied"))))))
+(defun psearch-patch--find-cl-generic-method (function met)
+  (let ((generic (cl--generic function)))
+    (catch 'found
+      (dolist (method (cl--generic-method-table generic))
+        (when (equal met
+                     (cl--generic-load-hist-format
+                      function
+                      (cl--generic-method-qualifiers method)
+                      (cl--generic-method-specializers method)))
+          (throw 'found method))))))
+
+(defun psearch-patch--cl-generic-args (spec-args)
+  "Return (EXTRA QUALIFIER SPECIALIZER REST)."
+  (list (when (car (equal :extra (car spec-args)))
+                 (pop spec-args)
+                 (pop spec-args))
+               (when (memq (car spec-args) '(:before :after :around))
+                 (pop spec-args))
+               (pop spec-args)
+               spec-args))
+
+(defun psearch-patch--xref-function-def (xref-args)
+  (pcase-let* ((`(,fun ,file ,type) xref-args)
+               (`(,buf . ,pos) (find-function-search-for-symbol fun type file)))
+    (with-current-buffer buf
+      (goto-char pos)
+      (let ((bounds (bounds-of-thing-at-point 'sexp)))
+        (read (buffer-substring-no-properties (car bounds) (cdr bounds)))))))
+
+(defun psearch-patch--symbol-function-def (function)
+  (let ((def (symbol-function function)))
+    (if (byte-code-function-p def)
+        (signal 'psearch-patch-failed
+                (list function "Can't patch a byte-compiled function"))
+      (let ((new (nthcdr (if (eq (car def) 'closure) 2 1) def)))
+        (push function new)
+        (push 'defun new)
+        new))))
+
+(defun psearch-patch--cl-generic-function-def (def-type function extra qualifier args cl-method)
+  "Return a redable generic function definition from CL-METHOD object.
+
+For example:
+
+   #s(...) =>
+   (cl-DEF-TYPE EXTRA QUALIFIER FUNCTION ARGS docstring func-body)"
+  (let* ((method-def (cl--generic-method-function cl-method))
+         (func-body (nthcdr (if (equal (nth 0 method-def) 'lambda) 2 3)
+                            method-def)))
+    (when (eq def-type 'cl-defgeneric)
+      (let* ((doc-raw (documentation function t))
+             (doc (cdr (help-split-fundoc doc-raw function))))
+        (when doc
+          (push doc func-body))))
+    (when args
+      (push args func-body))
+    (when qualifier
+      (push qualifier func-body))
+    (when extra
+      (push extra func-body)
+      (push :extra func-body))
+    (push function func-body)
+    (push def-type func-body)
+    func-body))
+
+(defun psearch-patch--met-name (function qualifier specializer)
+  (cl--generic-load-hist-format
+   function (and qualifier (list qualifier))
+   (pcase-let ((`(,spec-args . ,_) (cl--generic-split-args specializer)))
+     (mapcar
+      (lambda (spec-arg)
+        (if (eq '&context (car-safe (car spec-arg)))
+            spec-arg (cdr spec-arg)))
+      spec-args))))
+
+(defun psearch-patch--find-function (func-spec)
+  (let* ((func-spec (if (symbolp func-spec) (list 'defun func-spec) func-spec))
+         (def-type (pop func-spec))
+         (function (pop func-spec))
+         file)
+    (pcase-exhaustive def-type
+      ('defun
+        (let ((func-lib (find-function-library function 'lisp-only t)))
+          (if (setq file (cdr func-lib))
+              (psearch-patch--xref-function-def (list function file))
+            (psearch-patch--symbol-function-def function))))
+      ('cl-defgeneric
+        (let ((func-lib (find-function-library function 'lisp-only t)))
+          (if (setq file (cdr func-lib))
+              (psearch-patch--xref-function-def (list function file))
+            (when-let ((cl-method (psearch-patch--find-cl-generic-method
+                                   function (list function nil t))))
+              (pcase-let ((`(,extra ,qualifier ,specializer ,_spec-rest)
+                           (psearch-patch--cl-generic-args func-spec)))
+                (psearch-patch--cl-generic-function-def
+                 def-type function extra qualifier specializer cl-method))))))
+      ('cl-defmethod
+        (pcase-let* ((`(,extra ,qualifier ,specializer ,_spec-rest)
+                      (psearch-patch--cl-generic-args func-spec))
+                     (met-name
+                      (psearch-patch--met-name function qualifier specializer)))
+          (let ((cl-method (psearch-patch--find-cl-generic-method
+                            function met-name)))
+            (when cl-method
+              (if (setq file (find-lisp-object-file-name met-name 'cl-defmethod))
+                  (psearch-patch--xref-function-def (list met-name file def-type))
+                (psearch-patch--cl-generic-function-def
+                 def-type function extra qualifier specializer cl-method)))))))))
 
 ;;;###autoload
-(defmacro psearch-with-function-patch (function &rest patch-form)
-  "Patch the FUNCTION if PATCH-FORM return non-nil.
+(defmacro psearch-patch-define (name orig-func-spec &rest patch-form)
+  "Define NAME as a function based on a existing function with patch applied.
+
+See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
+  (declare (indent 2))
+  (let ((docpos (if (symbolp orig-func-spec) 3 (length orig-func-spec))))
+    `(let ((func-def (psearch-patch--find-function ',orig-func-spec)))
+       (with-temp-buffer
+         ;; Modifiy function name
+         (unless (eq ',name (nth 1 func-def))
+           (setcdr func-def (cons ',name (nthcdr 2 func-def))))
+         (print func-def (current-buffer))
+         ;; Modify docstring.
+         (goto-char (point-min))
+         (down-list)
+         (forward-sexp (+ ,docpos (if (equal 'lambda (sexp-at-point)) 0 1)))
+         (let ((str "[PATCHED]"))
+           (goto-char (car (bounds-of-thing-at-point 'sexp)))
+           (if (equal (char-after) ?\")
+               (progn
+                 (forward-char)
+                 (insert str))
+             (insert (format "%S\s" str))))
+         ;; Apply patch
+         (goto-char (point-min))
+         (progn ,@patch-form)
+         (eval-region (point-min) (point-max))))))
+
+;;;###autoload
+(defmacro psearch-patch (orig-func-spec &rest patch-form)
+  "Patch function ORIG-FUNC-SPEC with PATCH-FORM.
+
+ORIG-FUNC-SPEC should be a function name or (CL-DEF[GENERIC,METHOD] NAME [EXTRA]
+[QUALIFIER]) if it is a generic function.
+
+PATCH-FORM expressions to path the function.
 
 Example:
 
-   ;; Patch the function `orig-fun':
-   (psearch-with-function-patch orig-fun
-     (psearch-replace match-pattern
-                      replace-pattern))
-
-   ;; Equivalent to:
-   (psearch-with-function-create psearch-patched@orig-fun orig-fun
-     (psearch-replace match-pattern
-                      replace-pattern))
-   (advice-add \\='orig-fun :override #\\='psearch-patched@orig-fun)"
-  (declare (indent defun) (debug t))
-  (let ((adsym (intern (format "psearch-patched@%s" function))))
-    `(progn
-       (psearch-with-function-create ,adsym ,function ,@patch-form)
-       (message "==> [debug] %s\n%S" ',adsym (symbol-function ',adsym))
-       (setf (symbol-function ',function) ',adsym))))
+  (cl-defgeneric test (_tag) nil)
+  (cl-defdefmethod test ((tag (eql foo))) (list 1 (if nil 2) 3))
+  (psearch-patch-apply (cl-defmethod test ((tag (eql tag))))
+    (psearch-replace \\='\\=`(if nil ,body)
+                     \\='\\=`(if t ,body)))"
+  (declare (indent 1))
+  (let ((name (if (symbolp orig-func-spec) orig-func-spec (cadr orig-func-spec))))
+    `(psearch-patch-define ,name ,orig-func-spec ,@patch-form)))
 
 (provide 'psearch)
 
