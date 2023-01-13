@@ -364,7 +364,7 @@
       ('cl-defgeneric
           (let ((func-lib (find-function-library function 'lisp-only t)))
             (when-let ((cl-method (psearch-patch--find-cl-generic-method
-                                   function (list function nil t))))
+                                   function (psearch-patch--cl-generic-met-name function nil '(t)))))
               (pcase-let ((`(,extra ,qualifier ,specializer ,spec-rest)
                            (psearch-patch--cl-generic-args func-spec)))
                 (psearch-patch--cl-generic-function-def
@@ -373,7 +373,7 @@
         (pcase-let* ((`(,extra ,qualifier ,specializer ,spec-rest)
                       (psearch-patch--cl-generic-args func-spec))
                      (met-name
-                      (psearch-patch--met-name function qualifier specializer)))
+                      (psearch-patch--cl-generic-met-name function qualifier specializer)))
           (let ((cl-method (psearch-patch--find-cl-generic-method
                             function met-name)))
             (when cl-method
@@ -473,13 +473,15 @@
         (cl-defgeneric cl-test-1 (tag))
       (psearch-forward '`(tag))
       (forward-sexp 2)
+      (when (< emacs-major-version 27)
+        (backward-sexp 1))
       (let ((bound (bounds-of-thing-at-point 'sexp)))
         (delete-and-extract-region (car bound) (cdr bound))
         (insert (format "%S" "No implement."))))
 
     ;; Asset patch functions
     (should (equal generic-assert
-                   (psearch-patch--find-function
+                   (psearch-test--find-patched-function
                     '(cl-defgeneric cl-test-1 (tag)))))
     (should (equal method-assert
                    (psearch-test--find-patched-function
@@ -534,13 +536,15 @@
         (cl-defgeneric cl-test-2 (tag))
       (psearch-forward '`(tag))
       (forward-sexp 2)
+      (when (< emacs-major-version 27)
+        (backward-sexp 1))
       (let ((bound (bounds-of-thing-at-point 'sexp)))
         (delete-and-extract-region (car bound) (cdr bound))
         (insert (format "%S" "No implement."))))
 
     ;; Asset patch functions
     (should (equal patched-generic
-                   (psearch-patch--find-function
+                   (psearch-test--find-patched-function
                     '(cl-defgeneric cl-test-2 (tag)))))
     (should (equal patched-method1
                    (psearch-test--find-patched-function
@@ -591,13 +595,15 @@
      (cl-defgeneric cl-test-3 (tag))
      (psearch-forward '`(tag))
      (forward-sexp 2)
+     (when (< emacs-major-version 27)
+       (backward-sexp 1))
      (let ((bound (bounds-of-thing-at-point 'sexp)))
        (delete-and-extract-region (car bound) (cdr bound))
        (insert (format "%S" "No implement."))))
 
     ;; Asset patch functions
     (should (equal generic-assert
-                   (psearch-patch--find-function
+                   (psearch-test--find-patched-function
                     '(cl-defgeneric cl-test-3 (tag)))))
     (should (equal method-assert
                    (psearch-test--find-patched-function

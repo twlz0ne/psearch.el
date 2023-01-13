@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2022-12-12 10:32:09 +0800
+;; Last-Updated: 2023-01-13 14:23:41 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -604,7 +604,7 @@ Examples:
     (catch 'found
       (dolist (method (cl--generic-method-table generic))
         (when (equal met
-                     (cl--generic-load-hist-format
+                     (psearch-patch--cl-generic-load-hist-format
                       function
                       (cl--generic-method-qualifiers method)
                       (cl--generic-method-specializers method)))
@@ -664,8 +664,14 @@ For example:
     (push def-type func-body)
     func-body))
 
-(defun psearch-patch--met-name (function qualifier specializer)
-  (cl--generic-load-hist-format
+(defalias 'psearch-patch--cl-generic-load-hist-format
+  (if (functionp 'cl--generic-load-hist-format)
+      'cl--generic-load-hist-format
+    (lambda (name _ specializers)
+      (cons name specializers))))
+
+(defun psearch-patch--cl-generic-met-name (function qualifier specializer)
+  (psearch-patch--cl-generic-load-hist-format
    function (and qualifier (list qualifier))
    (pcase-let ((`(,spec-args . ,_) (cl--generic-split-args specializer)))
      (mapcar
@@ -690,7 +696,7 @@ For example:
           (if (setq file (cdr func-lib))
               (psearch-patch--xref-function-def (list function file))
             (when-let ((cl-method (psearch-patch--find-cl-generic-method
-                                   function (list function nil t))))
+                                   function (psearch-patch--cl-generic-met-name function nil '(t)))))
               (pcase-let ((`(,extra ,qualifier ,specializer ,_spec-rest)
                            (psearch-patch--cl-generic-args func-spec)))
                 (psearch-patch--cl-generic-function-def
@@ -699,7 +705,7 @@ For example:
         (pcase-let* ((`(,extra ,qualifier ,specializer ,_spec-rest)
                       (psearch-patch--cl-generic-args func-spec))
                      (met-name
-                      (psearch-patch--met-name function qualifier specializer)))
+                      (psearch-patch--cl-generic-met-name function qualifier specializer)))
           (let ((cl-method (psearch-patch--find-cl-generic-method
                             function met-name)))
             (when cl-method
