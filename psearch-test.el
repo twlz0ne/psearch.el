@@ -477,7 +477,8 @@
         (backward-sexp 1))
       (let ((bound (bounds-of-thing-at-point 'sexp)))
         (delete-and-extract-region (car bound) (cdr bound))
-        (insert (format "%S" "No implement."))))
+        (insert (format "%S" "No implement.")))
+      t)
 
     ;; Asset patch functions
     (should (equal generic-assert
@@ -540,7 +541,8 @@
         (backward-sexp 1))
       (let ((bound (bounds-of-thing-at-point 'sexp)))
         (delete-and-extract-region (car bound) (cdr bound))
-        (insert (format "%S" "No implement."))))
+        (insert (format "%S" "No implement.")))
+      t)
 
     ;; Asset patch functions
     (should (equal patched-generic
@@ -599,7 +601,8 @@
        (backward-sexp 1))
      (let ((bound (bounds-of-thing-at-point 'sexp)))
        (delete-and-extract-region (car bound) (cdr bound))
-       (insert (format "%S" "No implement."))))
+       (insert (format "%S" "No implement.")))
+     t)
 
     ;; Asset patch functions
     (should (equal generic-assert
@@ -610,6 +613,26 @@
                     '(cl-defmethod cl-test-3 ((tag (eql foo)))))))
     (should (equal (cl-test-3 'foo) '((1 2 3) (4 5 6) (7 8 9))))
     (should (equal (cl-test-3 'bar) "No implement."))))
+
+(ert-deftest psearch-test-patch-mismatch ()
+  (defun test-mismatch ()
+    "Docstring."
+    (list '(1 2 3)
+          (if nil '(4 5 6))
+          '(7 8 9)))
+
+  (should
+   (equal (psearch-patch--find-function 'test-mismatch)
+          '(defun test-mismatch nil "Docstring."
+                  (list (quote (1 2 3)) (if nil (quote (4 5 6))) (quote (7 8 9))))))
+
+  (should (equal 'psearch-patch-failed
+                 (condition-case err
+                     (psearch-patch
+                         test-mismatch
+                       (psearch-replace '`(when nil ,body)
+                                        '`(when t ,body)))
+                   (error (car err))))))
 
 (provide 'psearch-test)
 

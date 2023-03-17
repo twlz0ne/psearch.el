@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2023-01-13 14:23:41 +0800
+;; Last-Updated: 2023-03-17 09:40:39 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -740,23 +740,26 @@ See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
              (insert (format "%S\s" str))))
          ;; Apply patch
          (goto-char (point-min))
-         (progn ,@patch-form)
-         (eval-region (point-min) (point-max))))))
+         (if (progn ,@patch-form)
+             (eval-region (point-min) (point-max))
+           (signal 'psearch-patch-failed
+                   (list ',orig-func-spec "PATCH-FORM not applied")))))))
 
 ;;;###autoload
 (defmacro psearch-patch (orig-func-spec &rest patch-form)
-  "Patch function ORIG-FUNC-SPEC with PATCH-FORM.
+  "Create a patched function when PATCH-FORM return non-nil.
 
 ORIG-FUNC-SPEC should be a function name or (CL-DEF[GENERIC,METHOD] NAME [EXTRA]
 [QUALIFIER]) if it is a generic function.
 
-PATCH-FORM expressions to path the function.
+PATCH-FORM expressions to be executed. The target function will be patched only
+if it returns a non-nil, otherwise raise an error.
 
 Example:
 
   (cl-defgeneric test (_tag) nil)
   (cl-defdefmethod test ((tag (eql foo))) (list 1 (if nil 2) 3))
-  (psearch-patch-apply (cl-defmethod test ((tag (eql tag))))
+  (psearch-patch (cl-defmethod test ((tag (eql tag))))
     (psearch-replace \\='\\=`(if nil ,body)
                      \\='\\=`(if t ,body)))"
   (declare (indent 1))
