@@ -90,25 +90,39 @@ Pcase based search for Emacs Lisp.  Not as powerful as [el-search](https://elpa.
 
     Unlike ‘psearch-replace’, the `replace-pattern` here does not support (and is not necessary) the `collect->finle` operation. 
 
-- **psearch-with-function-patch** _`(function patch-form)`_
+- **psearch-patch** _`(orig-func-spec &rest patch-form)`_
 
-    Re-eval FUNCTION if PATCH-FORM return non-nil.  For example:
+    Patch function with PATCH-FORM.
+    
+    ORIG-FUNC-SPEC could be a symbol if function is defined by `defun`/`cl-defun`:
     
     ``` elisp
-    (psearch-with-function-patch test-patch
+    (psearch-patch test
       (psearch-replace '`(if nil ,body)
                        '`(if t ,body)))
-    ;; (defun test-patch ()         =>    (defun test-patch ()
+    ;; (defun test ()               =>    (defun test ()
     ;;   (list '(1 2 3)                     (list '(1 2 3)
     ;;         (if nil '(4 5 6))                  (if t '(4 5 6))
     ;;         '(7 8 9)))                         '(7 8 9)))
     ```
+
+    or a list if it is a generic method:
     
-    If the `PATCH-FORM` contains multiple statements, make sure each one of them executes successfully:
+    ``` elisp
+    ;; Definition
+    (cl-defgeneric test (_tag) nil)
+    (cl-defdefmethod test ((tag (eql foo))) (list 1 (if nil 2) 3))
+    ;; Patch
+    (psearch-patch (cl-defmethod test ((tag (eql tag))))
+      (psearch-replace '`(if nil ,body)
+                       '`(if t ,body)))
+    ```
+    
+    The target function will be patched only if PATCH-FORM returns a non-nil, otherwise raise an error. If the `PATCH-FORM` contains multiple statements, make sure each one of them executes successfully:
     
     ``` elisp
     (with-eval-after-load 'corfu-doc-terminal
-      (psearch-with-function-patch corfu-doc-terminal--preprocess-docstring
+      (psearch-patch corfu-doc-terminal--preprocess-docstring
         ;; Delete all `(let ...)` form except the first.
         (let ((pattern '`(let . ,rest)))
           (and (psearch-forward pattern)
