@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.2
-;; Last-Updated: 2023-04-09 22:17:56 +0800
+;; Last-Updated: 2023-04-12 11:24:37 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -412,13 +412,16 @@ RESULT-CALLBACK  a function to handle the result, return non-nil if success.
 COUNT            a number (default 1) that indicates the number of occurrences
                  to search for.  The current number will be stored in
                  `psearch-count-current' which avariable in RESULT-CALLBACK."
-  (let (point)
-    (dotimes (i (or count 1))
-      (let ((psearch-count-current (1+ i)))
-        (setq point (psearch-backward-1
-                     (psearch-make-matcher pattern result-pattern)
-                     result-callback))))
-    point))
+  (let (point last-point)
+    (catch 'break
+      (dotimes (i (or count 1))
+        (let ((psearch-count-current (1+ i)))
+          (if (setq point (psearch-backward-1
+                           (psearch-make-matcher pattern result-pattern)
+                           result-callback))
+              (setq last-point point)
+            (throw 'break nil)))))
+    last-point))
 
 ;;;###autoload
 (defun psearch-forward (pattern &optional result-pattern result-callback count)
@@ -434,13 +437,16 @@ RESULT-CALLBACK  a function to handle the result, return non-nil if success.
 COUNT            a number (default 1) that indicates the number of occurrences
                  to search for.  The current number will be stored in
                  `psearch-count-current' which avariable in RESULT-CALLBACK."
-  (let (point)
-    (dotimes (i (or count 1))
-      (let ((psearch-count-current (1+ i)))
-        (setq point (psearch-forward-1
-                     (psearch-make-matcher pattern result-pattern)
-                     result-callback))))
-    point))
+  (let (point last-point)
+    (catch 'break
+      (dotimes (i (or count 1))
+        (let ((psearch-count-current (1+ i)))
+          (if (setq point (psearch-forward-1
+                           (psearch-make-matcher pattern result-pattern)
+                           result-callback))
+              (setq last-point point)
+            (throw 'break nil)))))
+    last-point))
 
 ;;;###autoload
 (cl-defun psearch-replace (match-pattern replace-pattern
