@@ -4,8 +4,8 @@
 
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
-;; Version: 0.2.2
-;; Last-Updated: 2023-04-12 11:24:37 +0800
+;; Version: 0.2.3
+;; Last-Updated: 2024-06-18 19:05:48 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -104,11 +104,11 @@ Example:
                      stream))
             (when (and object (not quote-p))
               (princ " " stream)))
-          (when object
-            (while (setq car (pop object))
-              (psearch--prin1 car stream)
-              (when object
-                (princ " " stream))))
+          (while object
+            (setq car (pop object))
+            (psearch--prin1 car stream)
+            (when object
+              (princ " " stream)))
           (unless quote-p
             (princ ")" stream))))
     (if (stringp object)
