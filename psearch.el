@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.3
-;; Last-Updated: 2024-06-18 19:05:48 +0800
+;; Last-Updated: 2024-07-28 23:26:06 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -349,6 +349,36 @@ if there are no default values.")
 (defvar psearch-count-current nil
   "The current number of psearch matches (start from 1).
 It's only available in result-callback of `psearch-forward'/`psearch-backward'.")
+
+(defvar psearch-patch-function-definition-docpos nil
+  "Specifying the docstring pos in function definition.
+
+Some macro-generated functions have different struct with `defun', e.g.:
+
+  (psearch-patch--find-function 'doom-modeline-segment--foobar)
+  ;; => (doom-modeline-def-segment foobar \"Docstring\" body...)
+  ;;                    |             |         |        |
+  ;;                    |             |         |        `--- [3]body
+  ;;                    |             |         `------------ [2]docstring
+  ;;                    |             `---------------------- [1]name
+  ;;                    `------------------------------------ [0]declare
+
+  (psearch-patch--find-function 'foobar)
+  ;; => (defun foobar nil \"Docstring\" body...)
+  ;;       |     |     |       |        |
+  ;;       |     |     |       |        `--- [4]body
+  ;;       |     |     |       `------------ [3]docstring
+  ;;       |     |     `-------------------- [2]arguments
+  ;;       |     `-------------------------- [1]name
+  ;;       `-------------------------------- [0]declare
+
+Use a variable with `let' to tell the patch function how to locate the element
+in function definition:
+
+  (let ((psearch-patch-function-definition-docpos 2))
+    (psearch-patch doom-modeline-segment--matches
+      (psearch-replace '`match-pattern
+                       '`replacement)))")
 
 (defun psearch-replace-args (&optional prompt-prefix)
   "Read the match pattern and the replace pattern.
@@ -748,17 +778,21 @@ For example:
 
 See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
   (declare (indent 2))
-  (let ((docpos (if (symbolp orig-func-spec) 3 (length orig-func-spec))))
+  (let ((docpos (or psearch-patch-function-definition-docpos
+                    (if (symbolp orig-func-spec) 3 (length orig-func-spec)))))
     `(let ((func-def (psearch-patch--find-function ',orig-func-spec)))
        (with-temp-buffer
          ;; Modifiy function name
-         (unless (eq ',name (nth 1 func-def))
+         (when (and (eq 'defun (nth 0 func-def)) (not (eq ',name (nth 1 func-def))))
            (setcdr func-def (cons ',name (nthcdr 2 func-def))))
          (print func-def (current-buffer))
          ;; Modify docstring.
          (goto-char (point-min))
          (down-list)
-         (forward-sexp (+ ,docpos (if (equal 'lambda (sexp-at-point)) 0 1)))
+         (forward-sexp
+          (+ ,docpos (if (equal 'lambda (sexp-at-point)) 0
+                       (if (memq (sexp-at-point) '(defun cl-defgeneric cl-defmethod)) 1
+                         0))))
          (let ((str "[PATCHED]"))
            (goto-char (car (bounds-of-thing-at-point 'sexp)))
            (if (equal (char-after) ?\")
