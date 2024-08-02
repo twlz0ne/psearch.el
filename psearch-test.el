@@ -47,7 +47,8 @@
        (font-lock-set-defaults)
        (jit-lock-fontify-now))
      (goto-char (point-min))
-     ,@body))
+     (let ((pp-default-function 'pp-29))
+       ,@body)))
 
 
 ;;; tests
@@ -93,7 +94,8 @@
           (with-temp-buffer
             (insert init)
             (emacs-lisp-mode)
-            (psearch--pp-region1 (point-min) (+ (point-min) 13))
+            (let ((pp-default-function 'pp-29))
+              (psearch--pp-region1 (point-min) (+ (point-min) 13)))
             (should
              (string= expected (substring-no-properties (buffer-string))))))
         '(("((1) (2) (3))"      "((1)\n (2)\n (3))")
@@ -309,11 +311,15 @@
   "Ensure symbol function/library the patch based on."
   (defun syml-lib-test-1 () "Docstring." 1 2 3)
   (should (equal (symbol-function #'syml-lib-test-1)
-                 '(closure (t) nil "Docstring." 1 2 3)))
+                 (if (<= emacs-major-version 29)
+                     '(closure (t) nil "Docstring." 1 2 3)
+                   (read "#[nil (1 2 3) (t) nil \"Docstring.\"]"))))
 
   (eval '(defun syml-lib-test-2 () "Docstring." 1 2 3))
   (should (equal (symbol-function #'syml-lib-test-2)
-                 '(lambda nil "Docstring." 1 2 3)))
+                 (if (<= emacs-major-version 29)
+                     '(lambda nil "Docstring." 1 2 3)
+                   (read "#[nil (1 2 3) nil nil \"Docstring.\"]"))))
 
   (byte-compile (defun syml-lib-test-3 () "Docstring." 1 2 3))
   (should (byte-code-function-p
@@ -329,9 +335,13 @@
   (cl-defmethod sym-lib-test-1 :before ((tag (eql foo))) "Before Implement." 4)
   (should
    (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-1)))
-          '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before Implement." (progn 4)))
-            (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
-            (cl--generic-method (t) nil (closure (t) (tag) (progn nil))))))
+          (if (<= emacs-major-version 29)
+              '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before Implement." (progn 4)))
+                (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
+                (cl--generic-method (t) nil (closure (t) (tag) (progn nil))))
+            `((cl--generic-method ((eql foo)) (:before) ,(read "#[(tag) ((progn 4)) (t) nil \"Before Implement.\"]"))
+              (cl--generic-method ((eql foo)) nil ,(read "#[(tag) ((progn (progn 1 2 3))) (t) nil \"Implement.\"]"))
+              (cl--generic-method (t) nil ,(read "#[(tag) ((progn nil)) (t)]"))))))
 
   ;; Eval
   (eval '(cl-defgeneric sym-lib-test-2 (tag) "Interface." nil))
@@ -339,9 +349,13 @@
   (eval '(cl-defmethod sym-lib-test-2 :before ((tag (eql foo))) "Before Implement." 4))
   (should
    (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-2)))
-          '((cl--generic-method ((eql foo)) (:before) (lambda (tag) "Before Implement." (progn 4)))
-            (cl--generic-method ((eql foo)) nil (lambda (tag) "Implement." (progn (progn 1 2 3))))
-            (cl--generic-method (t) nil (lambda (tag) (progn nil))))))
+          (if (<= emacs-major-version 29)
+              '((cl--generic-method ((eql foo)) (:before) (lambda (tag) "Before Implement." (progn 4)))
+                (cl--generic-method ((eql foo)) nil (lambda (tag) "Implement." (progn (progn 1 2 3))))
+                (cl--generic-method (t) nil (lambda (tag) (progn nil))))
+            `((cl--generic-method ((eql foo)) (:before) ,(read "#[(tag) ((progn 4)) nil nil \"Before Implement.\"]"))
+              (cl--generic-method ((eql foo)) nil ,(read "#[(tag) ((progn (progn 1 2 3))) nil nil \"Implement.\"]"))
+              (cl--generic-method (t) nil ,(read "#[(tag) ((progn nil)) nil]"))))))
 
   ;; Compiled
   (byte-compile (cl-defgeneric sym-lib-test-3 (tag) "Interface." nil))
@@ -349,9 +363,13 @@
   (byte-compile (cl-defmethod sym-lib-test-3 :before ((tag (eql foo))) "Before implement." 4))
   (should
    (equal (mapcar #'psearch-test--cl-method-to-list (cl--generic-method-table (cl--generic #'sym-lib-test-3)))
-          '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before implement." (progn 4)))
-            (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
-            (cl--generic-method (t) nil (closure (t) (tag) (progn nil)))))))
+          (if (<= emacs-major-version 29)
+              '((cl--generic-method ((eql foo)) (:before) (closure (t) (tag) "Before implement." (progn 4)))
+                (cl--generic-method ((eql foo)) nil (closure (t) (tag) "Implement." (progn (progn 1 2 3))))
+                (cl--generic-method (t) nil (closure (t) (tag) (progn nil))))
+            `((cl--generic-method ((eql foo)) (:before) ,(read "#[(tag) ((progn 4)) (t) nil \"Before implement.\"]"))
+              (cl--generic-method ((eql foo)) nil ,(read "#[(tag) ((progn (progn 1 2 3))) (t) nil \"Implement.\"]"))
+              (cl--generic-method (t) nil ,(read "#[(tag) ((progn nil)) (t)]")))))))
 
 (defun psearch-test--find-patched-function (func-spec)
   (let* ((func-spec (if (symbolp func-spec) (list 'defun func-spec) func-spec))

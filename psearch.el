@@ -5,7 +5,7 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.3
-;; Last-Updated: 2024-07-28 23:26:06 +0800
+;; Last-Updated: 2024-08-03 00:32:13 +0800
 ;;           By: Gong Qijian
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
@@ -691,10 +691,17 @@ Examples:
     (if (byte-code-function-p def)
         (signal 'psearch-patch-failed
                 (list function "Can't patch a byte-compiled function"))
-      (let ((new (nthcdr (if (eq (car def) 'closure) 2 1) def)))
-        (push function new)
-        (push 'defun new)
-        new))))
+      ;; For 30+
+      (if (and (fboundp 'interpreted-function-p)
+               (funcall 'interpreted-function-p def))
+          ;; (eval '(defun foobar (arg) "Docstring" 'body))
+          ;; => #[(arg) ('body) nil nil "Docstring"]
+          ;; <= (defun foobar (arg) "Docstring" 'body)
+          `(defun ,function ,(aref def 0) ,(aref def 4) ,@(aref def 1))
+        (let ((new (nthcdr (if (eq (car def) 'closure) 2 1) def)))
+          (push function new)
+          (push 'defun new)
+          new)))))
 
 (defun psearch-patch--cl-generic-function-def (def-type function extra qualifier args cl-method)
   "Return a redable generic function definition from CL-METHOD object.
@@ -704,8 +711,15 @@ For example:
    #s(...) =>
    (cl-DEF-TYPE EXTRA QUALIFIER FUNCTION ARGS docstring func-body)"
   (let* ((method-def (cl--generic-method-function cl-method))
-         (func-body (nthcdr (if (equal (nth 0 method-def) 'lambda) 2 3)
-                            method-def)))
+         (func-body
+          ;; For 30+
+          (if (and (fboundp 'interpreted-function-p)
+                   (funcall 'interpreted-function-p method-def))
+            (if (= 5 (length method-def))
+                (cons (aref method-def 4) (aref method-def 1))
+              (aref method-def 1))
+            (nthcdr (if (equal (nth 0 method-def) 'lambda) 2 3)
+                    method-def))))
     (when (eq def-type 'cl-defgeneric)
       (let* ((doc-raw (documentation function t))
              (doc (cdr (help-split-fundoc doc-raw function))))
