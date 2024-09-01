@@ -797,7 +797,7 @@ See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
     `(let ((func-def (psearch-patch--find-function ',orig-func-spec)))
        (with-temp-buffer
          ;; Modifiy function name
-         (when (and (eq 'defun (nth 0 func-def)) (not (eq ',name (nth 1 func-def))))
+         (when (and (memq (nth 0 func-def) '(defun defsubst)) (not (eq ',name (nth 1 func-def))))
            (setcdr func-def (cons ',name (nthcdr 2 func-def))))
          (print func-def (current-buffer))
          ;; Modify docstring.
@@ -805,7 +805,7 @@ See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
          (down-list)
          (forward-sexp
           (+ ,docpos (if (equal 'lambda (sexp-at-point)) 0
-                       (if (memq (sexp-at-point) '(defun cl-defgeneric cl-defmethod)) 1
+                       (if (memq (sexp-at-point) '(defun defsubst cl-defgeneric cl-defmethod)) 1
                          0))))
          (let ((str "[PATCHED]"))
            (goto-char (car (bounds-of-thing-at-point 'sexp)))
