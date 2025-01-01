@@ -5,8 +5,8 @@
 ;; Author: Gong Qijian <gongqijian@gmail.com>
 ;; Created: 2020/08/29
 ;; Version: 0.2.3
-;; Last-Updated: 2024-08-03 00:32:13 +0800
-;;           By: Gong Qijian
+;; Last-Updated: 2025-01-01 20:23:00 +0800
+;;           By: Deeson Gao
 ;; Package-Requires: ((emacs "25.1"))
 ;; URL: https://github.com/twlz0ne/psearch.el
 ;; Keywords: tools
@@ -817,7 +817,11 @@ See `psearch-patch' for explanation on arguments ORIG-FUNC-SPEC and PATCH-FORM."
          ;; Apply patch
          (goto-char (point-min))
          (if (progn ,@patch-form)
-             (eval-region (point-min) (point-max))
+             (let* ((lib (cdr (condition-case nil
+                                  (find-function-library ',name 'lisp-only t)
+                                (void-function nil))))
+                    (buffer-file-name (if lib (file-name-sans-extension lib))))
+               (eval-region (point-min) (point-max)))
            (signal 'psearch-patch-failed
                    (list ',orig-func-spec "PATCH-FORM not applied")))))))
 
